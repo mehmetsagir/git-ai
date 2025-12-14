@@ -1,0 +1,52 @@
+{
+  "name": "@mehmetsagir/git-ai",
+  "version": "0.0.9",
+  "description": "AI-powered git commit tool that analyzes diffs and creates conventional commit messages",
+  "main": "dist/index.js",
+  "bin": {
+    "git-ai": "bin/git-ai"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "package.json",
+    "package-lock.json"
+  ],
+  "keywords": [
+    "git",
+    "commit",
+    "ai",
+    "openai",
+    "conventional-commits",
+    "cli"
+  ],
+  "author": "Mehmet Sağır <mehmetsagirdev@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0",
+    "inquirer": "^8.2.6",
+    "openai": "^4.20.1",
+    "ora": "^5.4.1",
+    "simple-git": "^3.20.0",
+    "update-notifier": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^8.2.10",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mehmetsagir/git-ai.git"
+  },
+  "readme": "README.md"
+}

@@ -1,0 +1,14 @@
+src/
+tsconfig.json
+*.ts
+!*.d.ts
+.git/
+node_modules/
+.DS_Store
+.env
+.env.local
+*.log
+commit.md
+.vscode/
+.idea/
+
