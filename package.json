@@ -48,5 +48,8 @@
     "type": "git",
     "url": "https://github.com/mehmetsagir/git-ai.git"
   },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "readme": "README.md"
 }
