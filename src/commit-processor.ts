@@ -56,6 +56,7 @@ async function processCommitGroup(
       return { success: false, filesProcessed: filesToUse };
     }
   } else if (filesAlreadyStaged.length > 0) {
+    // Files already staged, no action needed
   }
 
   // Set git user before committing (local scope to not affect global config)
@@ -274,7 +275,7 @@ export async function processAllCommitGroups(
     // This ensures the next group only stages its own files
     try {
       await git.unstageAll();
-    } catch (error) {
+    } catch {
       // Continue even if error
     }
   }

@@ -8,6 +8,7 @@ import * as users from "./users";
 import * as reset from "./reset";
 import * as add from "./add";
 import * as update from "./update";
+import * as summary from "./summary";
 import packageJson from "../package.json";
 import { getErrorMessage } from "./utils/errors";
 
@@ -49,7 +50,182 @@ if (process.argv.includes("--update")) {
       "AI-powered git commit tool that analyzes diffs and creates conventional commit messages"
     )
     .version(packageJson.version)
-    .option("--update", "Check for updates and update to latest version");
+    .option("--update", "Check for updates and update to latest version")
+    .configureHelp({
+      helpWidth: 100,
+      sortSubcommands: true,
+      subcommandTerm: (cmd) => {
+        const aliases =
+          cmd.aliases().length > 0 ? ` (${cmd.aliases().join(", ")})` : "";
+        return chalk.cyan(cmd.name()) + chalk.gray(aliases);
+      },
+      commandUsage: (cmd) => {
+        const name =
+          cmd.name() === "git-ai" ? "git-ai" : `git-ai ${cmd.name()}`;
+        return chalk.bold.cyan(name);
+      },
+      formatHelp: (cmd, helper) => {
+        const indent = "  ";
+
+        let output = "\n";
+
+        // 3D ASCII Art Title - git-ai
+        const title3D = `
+  ${chalk.bold.white(" ██████╗ ██╗████████╗")}    ${chalk.bold.white(
+          " █████╗ ██╗"
+        )}
+  ${chalk.bold.white("██╔════╝ ██║╚══██╔══╝")}    ${chalk.bold.white(
+          "██╔══██╗██║"
+        )}
+  ${chalk.bold.white("██║  ███╗██║   ██║")}       ${chalk.bold.white(
+          "███████║██║"
+        )}
+  ${chalk.bold.white("██║   ██║██║   ██║")}       ${chalk.bold.white(
+          "██╔══██║██║"
+        )}
+  ${chalk.bold.white("╚██████╔╝██║   ██║")}       ${chalk.bold.white(
+          "██║  ██║██║"
+        )}
+  ${chalk.bold.white(" ╚═════╝ ╚═╝   ╚═╝")}       ${chalk.bold.white(
+          "╚═╝  ╚═╝╚═╝"
+        )}
+
+  ${chalk.gray("AI-Powered Git Commit Tool")}
+`;
+
+        output += title3D + "\n";
+
+        // Usage
+        const usage = helper.commandUsage(cmd);
+        output += chalk.bold("Usage:\n");
+        output += indent + usage + "\n\n";
+
+        // Options
+        const visibleOptions = helper.visibleOptions(cmd);
+        if (visibleOptions.length > 0) {
+          output += chalk.bold("Options:\n");
+          visibleOptions.forEach((option) => {
+            const flags = option.flags;
+            const description = option.description;
+            const flagsLength = flags.replace(/\x1b\[[0-9;]*m/g, "").length;
+            const padding = " ".repeat(Math.max(1, 30 - flagsLength));
+            output +=
+              indent +
+              chalk.cyan(flags) +
+              padding +
+              chalk.gray(description) +
+              "\n";
+          });
+          output += "\n";
+        }
+
+        // Commands - Grouped
+        const visibleCommands = helper.visibleCommands(cmd);
+        if (visibleCommands.length > 0) {
+          // Categorize commands
+          const setupCommands = ["setup", "reset"];
+          const gitCommands = ["commit", "summary"];
+          const userCommands = ["add", "list", "remove"];
+
+          const categorizeCommand = (cmdName: string) => {
+            if (setupCommands.includes(cmdName)) return "setup";
+            if (gitCommands.includes(cmdName)) return "git";
+            if (userCommands.includes(cmdName)) return "user";
+            return "other";
+          };
+
+          const categorized = {
+            setup: [] as typeof visibleCommands,
+            git: [] as typeof visibleCommands,
+            user: [] as typeof visibleCommands,
+            other: [] as typeof visibleCommands,
+          };
+
+          visibleCommands.forEach((subcmd) => {
+            const category = categorizeCommand(subcmd.name());
+            categorized[category].push(subcmd);
+          });
+
+          // Setup & Configuration
+          if (categorized.setup.length > 0) {
+            output += chalk.bold.white("Setup & Configuration:\n");
+            categorized.setup.forEach((subcmd) => {
+              const aliases =
+                subcmd.aliases().length > 0
+                  ? ` (${subcmd.aliases().join(", ")})`
+                  : "";
+              const name = chalk.cyan(subcmd.name()) + chalk.gray(aliases);
+              const description = subcmd.description();
+              const nameLength = subcmd.name().length + aliases.length;
+              const padding = " ".repeat(Math.max(1, 30 - nameLength));
+              output +=
+                indent + name + padding + chalk.gray(description) + "\n";
+            });
+            output += "\n";
+          }
+
+          // Git Operations
+          if (categorized.git.length > 0) {
+            output += chalk.bold.white("Git Operations:\n");
+            categorized.git.forEach((subcmd) => {
+              const aliases =
+                subcmd.aliases().length > 0
+                  ? ` (${subcmd.aliases().join(", ")})`
+                  : "";
+              const name = chalk.cyan(subcmd.name()) + chalk.gray(aliases);
+              const description = subcmd.description();
+              const nameLength = subcmd.name().length + aliases.length;
+              const padding = " ".repeat(Math.max(1, 30 - nameLength));
+              output +=
+                indent + name + padding + chalk.gray(description) + "\n";
+            });
+            output += "\n";
+          }
+
+          // User Management
+          if (categorized.user.length > 0) {
+            output += chalk.bold.white("User Management:\n");
+            categorized.user.forEach((subcmd) => {
+              const aliases =
+                subcmd.aliases().length > 0
+                  ? ` (${subcmd.aliases().join(", ")})`
+                  : "";
+              const name = chalk.cyan(subcmd.name()) + chalk.gray(aliases);
+              const description = subcmd.description();
+              const nameLength = subcmd.name().length + aliases.length;
+              const padding = " ".repeat(Math.max(1, 30 - nameLength));
+              output +=
+                indent + name + padding + chalk.gray(description) + "\n";
+            });
+            output += "\n";
+          }
+
+          // Other commands
+          if (categorized.other.length > 0) {
+            categorized.other.forEach((subcmd) => {
+              const aliases =
+                subcmd.aliases().length > 0
+                  ? ` (${subcmd.aliases().join(", ")})`
+                  : "";
+              const name = chalk.cyan(subcmd.name()) + chalk.gray(aliases);
+              const description = subcmd.description();
+              const nameLength = subcmd.name().length + aliases.length;
+              const padding = " ".repeat(Math.max(1, 30 - nameLength));
+              output +=
+                indent + name + padding + chalk.gray(description) + "\n";
+            });
+            output += "\n";
+          }
+        }
+
+        // Footer
+        output += chalk.gray(
+          "Run 'git-ai <command> --help' for more information on a command.\n"
+        );
+
+        return output;
+      },
+    });
 
   program
     .command("setup")
@@ -115,12 +291,30 @@ if (process.argv.includes("--update")) {
 
   program
     .command("reset")
-    .description("Reset all configuration (deletes OpenAI key and all git users)")
+    .description(
+      "Reset all configuration (deletes OpenAI key and all git users)"
+    )
     .action(async () => {
       try {
         await reset.resetConfig();
       } catch (error) {
         handleError(error);
+      }
+    });
+
+  program
+    .command("summary")
+    .alias("sum")
+    .description("Generate a summary of current changes using AI")
+    .option(
+      "-o, --output <file>",
+      "Output file path (default: CHANGES_SUMMARY.md)"
+    )
+    .action(async (options: { output?: string }) => {
+      try {
+        await summary.runSummary(options.output);
+      } catch (error) {
+        handleError(error, true);
       }
     });
 

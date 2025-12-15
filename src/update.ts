@@ -51,12 +51,11 @@ export async function checkAndUpdate(): Promise<void> {
  */
 export function checkForUpdates(): void {
   try {
-    // Use require to avoid TypeScript issues with update-notifier
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const updateNotifier = require('update-notifier');
     const notifier = updateNotifier({
       pkg: packageJson,
-      updateCheckInterval: 1000 * 60 * 60 * 24 // Check once per day
+      updateCheckInterval: 1000 * 60 * 60 * 24
     });
 
     if (notifier.update) {
@@ -64,7 +63,7 @@ export function checkForUpdates(): void {
         message: `Update available: ${notifier.update.current} → ${notifier.update.latest}\nRun 'git-ai --update' to update.`
       });
     }
-  } catch (error) {
+  } catch {
     // Silently fail if update-notifier is not available
   }
 }
