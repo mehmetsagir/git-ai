@@ -12,13 +12,49 @@ function getGitInstance(repoPath: string = process.cwd()): SimpleGit {
 }
 
 /**
- * Get staged changes
+ * Get staged changes (including deleted files)
  */
 export async function getStagedDiff(): Promise<string> {
   try {
     const git = getGitInstance();
-    const diff = await git.diff(["--cached"]);
-    return diff;
+    const status = await git.status();
+    
+    // Get standard staged diff (should include deletions, but ensure with --diff-filter)
+    const diff = await git.diff([
+      "--cached",
+      "--no-renames",
+      "--diff-filter=ACDMRT", // Include Added, Copied, Deleted, Modified, Renamed, Type-changed
+    ]);
+    
+    // Also explicitly get staged deleted files and ensure they're in the diff
+    const stagedDeleted = (status.deleted || []).filter((file) => {
+      // Check if file is in staged files
+      return status.staged.includes(file);
+    });
+    
+    // If git.diff didn't include deleted files, add them manually
+    let deletedDiffs = "";
+    if (stagedDeleted.length > 0) {
+      // Check if deleted files are already in the diff
+      const deletedInDiff = stagedDeleted.some((file) =>
+        diff.includes(`--- a/${file}`)
+      );
+      
+      if (!deletedInDiff) {
+        // Add deleted files that weren't in the diff
+        const deletedDiffsArray = await Promise.all(
+          stagedDeleted.map((file) => getDeletedFileDiff(file))
+        );
+        deletedDiffs = deletedDiffsArray
+          .filter((d) => d.length > 0)
+          .join("\n\n");
+      }
+    }
+    
+    if (diff && deletedDiffs) {
+      return `${diff}\n\n${deletedDiffs}`;
+    }
+    return diff || deletedDiffs;
   } catch (error) {
     throw new Error(`Error getting staged diff: ${getErrorMessage(error)}`);
   }
@@ -45,15 +81,45 @@ function getNewFileDiff(filePath: string): string {
 }
 
 /**
- * Get unstaged changes (including new files)
+ * Get diff for a deleted file
+ */
+async function getDeletedFileDiff(filePath: string): Promise<string> {
+  try {
+    const git = getGitInstance();
+    // Try to get the file content from HEAD (last commit) using raw command
+    try {
+      const content = await git.raw(["show", `HEAD:${filePath}`]);
+      const lines = content.split("\n");
+      // Remove trailing newline if exists
+      if (lines.length > 0 && lines[lines.length - 1] === "") {
+        lines.pop();
+      }
+      const diffLines = lines.map((line) => `-${line}`);
+      return `diff --git a/${filePath} b/${filePath}\ndeleted file mode 100644\nindex 1111111..0000000\n--- a/${filePath}\n+++ /dev/null\n${diffLines.join(
+        "\n"
+      )}`;
+    } catch (error) {
+      // If file doesn't exist in HEAD, create a simple deletion diff
+      return `diff --git a/${filePath} b/${filePath}\ndeleted file mode 100644\n--- a/${filePath}\n+++ /dev/null\n`;
+    }
+  } catch (error) {
+    return "";
+  }
+}
+
+/**
+ * Get unstaged changes (including new files and deleted files)
  */
 export async function getUnstagedDiff(): Promise<string> {
   try {
     const git = getGitInstance();
     const status = await git.status();
 
-    // Get diff for tracked modified files
-    const trackedDiff = await git.diff();
+    // Get diff for tracked modified files (ensure deletions are included)
+    const trackedDiff = await git.diff([
+      "--no-renames",
+      "--diff-filter=ACDMRT", // Include Added, Copied, Deleted, Modified, Renamed, Type-changed
+    ]);
 
     // Get diff for new (untracked) files
     const newFiles = status.not_added || [];
@@ -62,10 +128,36 @@ export async function getUnstagedDiff(): Promise<string> {
       .filter((diff) => diff.length > 0)
       .join("\n\n");
 
-    if (trackedDiff && newFilesDiff) {
-      return `${trackedDiff}\n\n${newFilesDiff}`;
+    // Get unstaged deleted files
+    const unstagedDeleted = (status.deleted || []).filter((file) => {
+      // Check if file is NOT in staged files (unstaged deletion)
+      return !status.staged.includes(file);
+    });
+
+    // If git.diff didn't include deleted files, add them manually
+    let deletedDiffs = "";
+    if (unstagedDeleted.length > 0) {
+      // Check if deleted files are already in the diff
+      const deletedInDiff = unstagedDeleted.some((file) =>
+        trackedDiff.includes(`--- a/${file}`)
+      );
+      
+      if (!deletedInDiff) {
+        // Add deleted files that weren't in the diff
+        const deletedDiffsArray = await Promise.all(
+          unstagedDeleted.map((file) => getDeletedFileDiff(file))
+        );
+        deletedDiffs = deletedDiffsArray
+          .filter((d) => d.length > 0)
+          .join("\n\n");
+      }
     }
-    return trackedDiff || newFilesDiff;
+
+    // Combine all diffs
+    const parts = [trackedDiff, newFilesDiff, deletedDiffs].filter(
+      (part) => part && part.length > 0
+    );
+    return parts.join("\n\n");
   } catch (error) {
     throw new Error(`Error getting unstaged diff: ${getErrorMessage(error)}`);
   }
@@ -299,13 +391,18 @@ export async function getStagedFiles(): Promise<string[]> {
 }
 
 /**
- * List all changed files
+ * List all changed files (including deleted files)
  */
 export async function getAllChangedFiles(): Promise<string[]> {
   try {
     const git = getGitInstance();
     const status = await git.status();
-    return [...status.staged, ...status.not_added, ...status.modified];
+    return [
+      ...status.staged,
+      ...status.not_added,
+      ...status.modified,
+      ...(status.deleted || []),
+    ];
   } catch (error) {
     throw new Error(`Error getting changed files: ${getErrorMessage(error)}`);
   }
