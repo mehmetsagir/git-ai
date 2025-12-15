@@ -36,7 +36,9 @@ function getNewFileDiff(filePath: string): string {
     const content = fs.readFileSync(fullPath, "utf8");
     const lines = content.split("\n");
     const diffLines = lines.map((line) => `+${line}`);
-    return `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/${filePath}\n${diffLines.join("\n")}`;
+    return `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/${filePath}\n${diffLines.join(
+      "\n"
+    )}`;
   } catch (error) {
     return "";
   }
@@ -49,17 +51,17 @@ export async function getUnstagedDiff(): Promise<string> {
   try {
     const git = getGitInstance();
     const status = await git.status();
-    
+
     // Get diff for tracked modified files
     const trackedDiff = await git.diff();
-    
+
     // Get diff for new (untracked) files
     const newFiles = status.not_added || [];
     const newFilesDiff = newFiles
       .map((file) => getNewFileDiff(file))
       .filter((diff) => diff.length > 0)
       .join("\n\n");
-    
+
     if (trackedDiff && newFilesDiff) {
       return `${trackedDiff}\n\n${newFilesDiff}`;
     }
@@ -76,26 +78,22 @@ export async function getAllDiff(): Promise<DiffData> {
   try {
     const git = getGitInstance();
     const status = await git.status();
-    
+
     // Get staged diff
     const staged = await getStagedDiff();
-    
+
     // Get unstaged diff (includes new files)
     const unstaged = await getUnstagedDiff();
-    
-    // Also check for new files in staged area
-    // New files are those in not_added that might have been staged
+
     const stagedNewFiles: string[] = [];
     const allNewFiles = status.not_added || [];
     const stagedFiles = status.staged || [];
-    
-    // Check if any new files are also in staged (shouldn't happen, but check anyway)
     for (const file of stagedFiles) {
       if (allNewFiles.includes(file)) {
         stagedNewFiles.push(file);
       }
     }
-    
+
     let stagedWithNew = staged;
     if (stagedNewFiles.length > 0) {
       const stagedNewFilesDiff = stagedNewFiles
@@ -103,10 +101,12 @@ export async function getAllDiff(): Promise<DiffData> {
         .filter((diff) => diff.length > 0)
         .join("\n\n");
       if (stagedNewFilesDiff) {
-        stagedWithNew = staged ? `${staged}\n\n${stagedNewFilesDiff}` : stagedNewFilesDiff;
+        stagedWithNew = staged
+          ? `${staged}\n\n${stagedNewFilesDiff}`
+          : stagedNewFilesDiff;
       }
     }
-    
+
     return {
       staged: stagedWithNew,
       unstaged,

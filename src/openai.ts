@@ -106,3 +106,46 @@ export async function generateCommitMessage(diff: string, apiKey: string): Promi
   }
 }
 
+/**
+ * Generate changes summary from git diff
+ */
+export async function generateChangesSummary(
+  diff: string,
+  apiKey: string
+): Promise<{ summary: string }> {
+  if (!apiKey) {
+    throw new Error('OpenAI API key is required');
+  }
+
+  initOpenAI(apiKey);
+  const client = getOpenAIClient();
+
+  const systemPrompt = prompts.getChangesSummarySystemPrompt();
+  const userPrompt = prompts.getChangesSummaryUserPrompt(diff);
+
+  try {
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.3,
+      response_format: { type: 'json_object' }
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('No response from OpenAI');
+    }
+    const result = JSON.parse(content) as { summary: string };
+    return result;
+  } catch (error) {
+    const message = getErrorMessage(error);
+    if (message.includes('API key')) {
+      throw new Error('Invalid OpenAI API key');
+    }
+    throw new Error(`OpenAI API error: ${message}`);
+  }
+}
+
