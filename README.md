@@ -8,6 +8,7 @@ AI-powered git commit tool. Analyzes git diffs, groups them logically, and creat
 - 📦 **Smart Grouping**: Groups changes logically
 - 📝 **Conventional Commits**: Uses standard commit message format
 - 👤 **Multiple Git User Support**: Manages multiple git user profiles
+- 📊 **Changes Summary**: Get AI-powered summaries of your current changes
 - 🔒 **Secure**: Commits are not pushed automatically, provides manual control
 
 ## Installation
@@ -285,6 +286,81 @@ git-ai --update
 
 Check for updates and update to the latest version. The tool also automatically checks for updates in the background and will notify you if a new version is available.
 
+### Summary
+
+```bash
+git-ai summary [options]
+# or
+git-ai sum [options]
+```
+
+Generate a concise AI-powered summary of your current changes (staged and unstaged).
+
+**Options:**
+
+- `-o, --output <file>`: Output file path (default: CHANGES_SUMMARY.md)
+
+**What it does:**
+
+- Analyzes your git diff (staged + unstaged changes)
+- Creates a clear, structured summary of what changed
+- Highlights key modifications and affected files
+- Does NOT create commits - just shows a summary
+- Optionally saves to a file (asks interactively or use `--output` flag)
+
+**Examples:**
+
+```bash
+# Generate summary and display in terminal
+git-ai summary
+
+# Generate summary and save directly to file
+git-ai summary --output CHANGES_SUMMARY.md
+
+# Generate summary and choose file interactively
+git-ai summary
+# Then answer "Yes" when asked to save to file
+```
+
+**Example output:**
+
+```
+📊 Changes Summary
+
+✓ Summary Generated
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Changes Summary
+
+## Overview
+Added user authentication feature with OAuth2 support and updated UI components.
+
+## Key Changes
+- Implemented OAuth2 authentication flow
+- Added user profile management
+- Updated login UI components
+- Added authentication tests
+
+## Files Affected
+- src/auth.ts (OAuth2 implementation)
+- src/user.ts (User profile management)
+- src/components/Login.tsx (UI updates)
+- src/auth.test.ts (Test coverage)
+
+## Notes
+- Breaking change: Authentication API endpoints changed
+- Requires environment variable configuration
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+This is useful for:
+
+- Quick review before committing
+- Understanding what changed in your working directory
+- Sharing changes with team members
+- Preparing commit messages manually
+
 ## Example Scenario
 
 1. **Run setup:**
@@ -361,7 +437,9 @@ Configuration file: `~/.git-ai/config.json`
 
 ## Troubleshooting
 
-### "OpenAI API key not found" error
+### Runtime Errors
+
+#### "OpenAI API key not found" error
 
 ```bash
 # If installed globally
@@ -371,7 +449,7 @@ git-ai setup
 npx @mehmetsagir/git-ai setup
 ```
 
-### "This directory is not a git repository" error
+#### "This directory is not a git repository" error
 
 Make sure you're in a git repository:
 
@@ -379,7 +457,7 @@ Make sure you're in a git repository:
 git init  # If it doesn't exist
 ```
 
-### "No changes found to commit" error
+#### "No changes found to commit" error
 
 Make sure you have changes:
 
