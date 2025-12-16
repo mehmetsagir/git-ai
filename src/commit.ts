@@ -187,6 +187,7 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
   const unstagedFiles = allChangedFiles.filter(
     (file) => !stagedFiles.includes(file)
   );
+  const stagedOnlyMode = stagedFiles.length > 0;
 
   if (stagedFiles.length > 0) {
     console.log(
@@ -197,7 +198,7 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
     if (unstagedFiles.length > 0) {
       console.log(
         chalk.blue(
-          `📝 Also found ${unstagedFiles.length} unstaged file(s). These will be analyzed together.\n`
+          `ℹ Ignoring ${unstagedFiles.length} unstaged file(s) because staged files exist.\n`
         )
       );
     }
@@ -215,33 +216,44 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
   const diffSpinner = ora("Analyzing changes...").start();
   let diffData;
   try {
-    diffData = await git.getAllDiff();
-
-    // Check if we have actual diff content
-    const hasStaged = diffData.staged && diffData.staged.trim().length > 0;
-    const hasUnstaged =
-      diffData.unstaged && diffData.unstaged.trim().length > 0;
-
-    if (!hasStaged && !hasUnstaged) {
-      diffSpinner.fail("No diff content found");
-      console.log(
-        chalk.yellow(
-          `ℹ Found ${allChangedFiles.length} file(s) but no diff content (may be renames/permissions only).\n`
-        )
-      );
-      return;
-    }
-
-    // Combine staged and unstaged diffs
-    if (!hasStaged && hasUnstaged) {
-      diffData.all = diffData.unstaged;
-    } else if (hasStaged && !hasUnstaged) {
-      diffData.all = diffData.staged;
+    if (stagedOnlyMode) {
+      const staged = await git.getStagedDiff();
+      diffData = {
+        staged,
+        unstaged: "",
+        all: staged,
+      };
     } else {
-      diffData.all = `${diffData.staged}\n${diffData.unstaged}`.trim();
+      diffData = await git.getAllDiff();
+
+      // Check if we have actual diff content
+      const hasStaged = diffData.staged && diffData.staged.trim().length > 0;
+      const hasUnstaged =
+        diffData.unstaged && diffData.unstaged.trim().length > 0;
+
+      if (!hasStaged && !hasUnstaged) {
+        diffSpinner.fail("No diff content found");
+        console.log(
+          chalk.yellow(
+            `ℹ Found ${allChangedFiles.length} file(s) but no diff content (may be renames/permissions only).\n`
+          )
+        );
+        return;
+      }
+
+      // Combine staged and unstaged diffs
+      if (!hasStaged && hasUnstaged) {
+        diffData.all = diffData.unstaged;
+      } else if (hasStaged && !hasUnstaged) {
+        diffData.all = diffData.staged;
+      } else {
+        diffData.all = `${diffData.staged}\n${diffData.unstaged}`.trim();
+      }
     }
 
-    diffSpinner.succeed("Changes analyzed");
+    diffSpinner.succeed(
+      stagedOnlyMode ? "Staged changes analyzed" : "Changes analyzed"
+    );
   } catch (error) {
     diffSpinner.fail(`Error: ${getErrorMessage(error)}`);
     return;
@@ -255,9 +267,51 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
   const aiSpinner = ora(
     "🤖 Analyzing diff with OpenAI and creating commit groups..."
   ).start();
-  let analysisResult;
+  let analysisResult: Awaited<ReturnType<typeof openai.analyzeDiffAndGroup>>;
   try {
     analysisResult = await openai.analyzeDiffAndGroup(diffData.all, openaiKey);
+
+    // In staged-only mode, prune group files to only staged files
+    if (stagedOnlyMode) {
+      // Refresh staged list to be safe
+      const stagedNow = await git.getStagedFiles();
+      const stagedSource = stagedNow.length > 0 ? stagedNow : stagedFiles;
+
+      const normalize = (file: string) => file.replace(/^[./]+/, "");
+      const stagedNormalized = stagedSource.map(normalize);
+
+      const filterGroupFiles = (groupFiles: string[]): string[] => {
+        const matched: string[] = [];
+        for (const file of groupFiles) {
+          const norm = normalize(file);
+          // Exact match
+          const exactIdx = stagedNormalized.findIndex((sf) => sf === norm);
+          if (exactIdx >= 0) {
+            matched.push(stagedSource[exactIdx]);
+            continue;
+          }
+          // Suffix/prefix match to handle path differences
+          const fuzzyIdx = stagedNormalized.findIndex(
+            (sf) => norm.endsWith(sf) || sf.endsWith(norm)
+          );
+          if (fuzzyIdx >= 0) {
+            matched.push(stagedSource[fuzzyIdx]);
+          }
+        }
+        // Return only matched files (groups with no matches will be filtered out)
+        return Array.from(new Set(matched));
+      };
+
+      analysisResult.groups = (analysisResult.groups || [])
+        .map((group) => {
+          const filteredFiles = filterGroupFiles(group.files);
+          return filteredFiles.length > 0
+            ? { ...group, files: filteredFiles }
+            : null;
+        })
+        .filter((g): g is (typeof analysisResult.groups)[number] => g !== null);
+    }
+
     aiSpinner.succeed(
       `Analysis complete: ${analysisResult.groups?.length || 0} groups created`
     );
@@ -306,7 +360,8 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
 
   const commitResults = await commitProcessor.processAllCommitGroups(
     analysisResult.groups,
-    selectedUser
+    selectedUser,
+    stagedOnlyMode
   );
 
   console.log(chalk.blue.bold("\n📊 Summary Report\n"));

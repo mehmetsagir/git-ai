@@ -18,7 +18,8 @@ async function processCommitGroup(
   group: CommitGroup,
   selectedUser: GitUserInfo | null,
   filesToUse: string[],
-  processedFiles: Set<string>
+  processedFiles: Set<string>,
+  stagedOnlyMode: boolean
 ): Promise<ProcessResult> {
   if (filesToUse.length === 0) {
     console.log(
@@ -30,33 +31,35 @@ async function processCommitGroup(
   // Mark files as processed
   filesToUse.forEach((file) => processedFiles.add(file));
 
-  // Check if files are already staged
-  const currentlyStaged = await git.getStagedFiles();
-  const filesAlreadyStaged = filesToUse.filter((file) =>
-    currentlyStaged.includes(file)
-  );
+  if (!stagedOnlyMode) {
+    // Check if files are already staged
+    const currentlyStaged = await git.getStagedFiles();
+    const filesAlreadyStaged = filesToUse.filter((file) =>
+      currentlyStaged.includes(file)
+    );
 
-  const filesToStage =
-    filesAlreadyStaged.length === filesToUse.length
-      ? [] // All files already staged
-      : filesToUse.filter((file) => !currentlyStaged.includes(file));
+    const filesToStage =
+      filesAlreadyStaged.length === filesToUse.length
+        ? [] // All files already staged
+        : filesToUse.filter((file) => !currentlyStaged.includes(file));
 
-  // Stage files if needed
-  if (filesToStage.length > 0) {
-    const stageSpinner = ora(
-      `Group ${group.number}: Staging ${filesToStage.length} file(s)...`
-    ).start();
-    try {
-      await git.stageFiles(filesToStage);
-      stageSpinner.succeed(`Group ${group.number}: Files staged`);
-    } catch (error) {
-      stageSpinner.fail(
-        `Group ${group.number}: Error staging files: ${getErrorMessage(error)}`
-      );
-      return { success: false, filesProcessed: filesToUse };
+    // Stage files if needed
+    if (filesToStage.length > 0) {
+      const stageSpinner = ora(
+        `Group ${group.number}: Staging ${filesToStage.length} file(s)...`
+      ).start();
+      try {
+        await git.stageFiles(filesToStage);
+        stageSpinner.succeed(`Group ${group.number}: Files staged`);
+      } catch (error) {
+        stageSpinner.fail(
+          `Group ${group.number}: Error staging files: ${getErrorMessage(
+            error
+          )}`
+        );
+        return { success: false, filesProcessed: filesToUse };
+      }
     }
-  } else if (filesAlreadyStaged.length > 0) {
-    // Files already staged, no action needed
   }
 
   // Set git user before committing (local scope to not affect global config)
@@ -90,31 +93,33 @@ async function processCommitGroup(
     ? `${group.commitMessage}\n\n${group.commitBody}`
     : group.commitMessage;
 
-  // Verify only the intended files are staged before committing
-  const stagedBeforeCommit = await git.getStagedFiles();
-  const unexpectedStaged = stagedBeforeCommit.filter(
-    (file) => !filesToUse.includes(file)
-  );
-
-  if (unexpectedStaged.length > 0) {
-    console.log(
-      chalk.yellow(
-        `⚠ Group ${group.number}: Fixing staging (unexpected files detected)\n`
-      )
+  if (!stagedOnlyMode) {
+    // Verify only the intended files are staged before committing
+    const stagedBeforeCommit = await git.getStagedFiles();
+    const unexpectedStaged = stagedBeforeCommit.filter(
+      (file) => !filesToUse.includes(file)
     );
-    try {
-      await git.unstageAll();
-      if (filesToUse.length > 0) {
-        await git.stageFiles(filesToUse);
-      }
-    } catch (error) {
+
+    if (unexpectedStaged.length > 0) {
       console.log(
         chalk.yellow(
-          `⚠ Group ${group.number}: Staging fix failed: ${getErrorMessage(
-            error
-          )}\n`
+          `⚠ Group ${group.number}: Fixing staging (unexpected files detected)\n`
         )
       );
+      try {
+        await git.unstageAll();
+        if (filesToUse.length > 0) {
+          await git.stageFiles(filesToUse);
+        }
+      } catch (error) {
+        console.log(
+          chalk.yellow(
+            `⚠ Group ${group.number}: Staging fix failed: ${getErrorMessage(
+              error
+            )}\n`
+          )
+        );
+      }
     }
   }
 
@@ -179,7 +184,8 @@ async function processCommitGroup(
  */
 export async function processAllCommitGroups(
   groups: CommitGroup[],
-  selectedUser: GitUserInfo | null
+  selectedUser: GitUserInfo | null,
+  stagedOnlyMode: boolean
 ): Promise<CommitResult[]> {
   const prepareSpinner = ora("Preparing files...").start();
 
@@ -195,7 +201,11 @@ export async function processAllCommitGroups(
       prepareSpinner.fail(`Error: ${getErrorMessage(error)}`);
     }
   } else {
-    prepareSpinner.succeed(`${initialStaged.length} staged file(s) ready`);
+    prepareSpinner.succeed(
+      stagedOnlyMode
+        ? `${initialStaged.length} staged file(s) will be used (unstaged ignored)`
+        : `${initialStaged.length} staged file(s) ready`
+    );
   }
 
   const commitResults: CommitResult[] = [];
@@ -204,42 +214,45 @@ export async function processAllCommitGroups(
   console.log(chalk.blue(`\n📦 Creating ${groups.length} commits...\n`));
 
   for (const group of groups) {
-    // Get current git status - this will exclude already committed files
-    const currentStaged = await git.getStagedFiles();
-    const currentChanged = await git.getAllChangedFiles();
-
-    // If there are staged files, use them for this commit
-    // Otherwise, use unstaged files from the group
+    // Decide which files to use
     let filesToUse: string[] = [];
 
-    if (currentStaged.length > 0 && processedFiles.size === 0) {
-      // First group and we have staged files - use them
-      filesToUse = currentStaged;
+    if (stagedOnlyMode) {
+      filesToUse = initialStaged.filter((file) => !processedFiles.has(file));
+      // Only run once; remaining groups will be skipped below if no files
     } else {
-      // Get remaining files (exclude already processed ones)
-      const remainingFiles = currentChanged.filter(
-        (file) => !processedFiles.has(file)
-      );
+      const currentStaged = await git.getStagedFiles();
+      const currentChanged = await git.getAllChangedFiles();
 
-      // Match group files with remaining files
-      const groupFiles = group.files
-        .map((file) => {
-          const normalizedFile = file.replace(/^\.\//, "").replace(/^\//, "");
-          return remainingFiles.find((changed) => {
-            const normalizedChanged = changed
-              .replace(/^\.\//, "")
-              .replace(/^\//, "");
-            return (
-              normalizedChanged === normalizedFile ||
-              normalizedChanged.endsWith(normalizedFile) ||
-              normalizedFile.endsWith(normalizedChanged)
-            );
-          });
-        })
-        .filter((file): file is string => Boolean(file));
+      if (currentStaged.length > 0 && processedFiles.size === 0) {
+        // First group and we have staged files - use them
+        filesToUse = currentStaged;
+      } else {
+        // Get remaining files (exclude already processed ones)
+        const remainingFiles = currentChanged.filter(
+          (file) => !processedFiles.has(file)
+        );
 
-      filesToUse =
-        groupFiles.length > 0 ? groupFiles : remainingFiles.slice(0, 1);
+        // Match group files with remaining files
+        const groupFiles = group.files
+          .map((file) => {
+            const normalizedFile = file.replace(/^\.\//, "").replace(/^\//, "");
+            return remainingFiles.find((changed) => {
+              const normalizedChanged = changed
+                .replace(/^\.\//, "")
+                .replace(/^\//, "");
+              return (
+                normalizedChanged === normalizedFile ||
+                normalizedChanged.endsWith(normalizedFile) ||
+                normalizedFile.endsWith(normalizedChanged)
+              );
+            });
+          })
+          .filter((file): file is string => Boolean(file));
+
+        filesToUse =
+          groupFiles.length > 0 ? groupFiles : remainingFiles.slice(0, 1);
+      }
     }
 
     if (filesToUse.length === 0) {
@@ -260,7 +273,8 @@ export async function processAllCommitGroups(
       group,
       selectedUser,
       filesToUse,
-      processedFiles
+      processedFiles,
+      stagedOnlyMode
     );
 
     commitResults.push({
@@ -272,11 +286,16 @@ export async function processAllCommitGroups(
     });
 
     // After each commit, unstage any remaining staged files
-    // This ensures the next group only stages its own files
-    try {
-      await git.unstageAll();
-    } catch {
-      // Continue even if error
+    // Skip in stagedOnlyMode to avoid touching unstaged changes
+    if (!stagedOnlyMode) {
+      try {
+        await git.unstageAll();
+      } catch {
+        // Continue even if error
+      }
+    } else {
+      // In staged-only mode we only process once
+      break;
     }
   }
 
