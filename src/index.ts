@@ -9,6 +9,7 @@ import * as reset from "./reset";
 import * as add from "./add";
 import * as update from "./update";
 import * as summary from "./summary";
+import * as setEditor from "./set-editor";
 import packageJson from "../package.json";
 import { getErrorMessage } from "./utils/errors";
 
@@ -123,7 +124,7 @@ if (process.argv.includes("--update")) {
         const visibleCommands = helper.visibleCommands(cmd);
         if (visibleCommands.length > 0) {
           // Categorize commands
-          const setupCommands = ["setup", "reset"];
+          const setupCommands = ["setup", "reset", "set-editor"];
           const gitCommands = ["commit", "summary"];
           const userCommands = ["add", "list", "remove"];
 
@@ -297,6 +298,18 @@ if (process.argv.includes("--update")) {
     .action(async () => {
       try {
         await reset.resetConfig();
+      } catch (error) {
+        handleError(error);
+      }
+    });
+
+  program
+    .command("set-editor")
+    .alias("editor")
+    .description("Change your preferred editor for commit messages")
+    .action(async () => {
+      try {
+        await setEditor.setEditorPreference();
       } catch (error) {
         handleError(error);
       }

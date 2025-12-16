@@ -7,6 +7,8 @@ import * as openai from "./openai";
 import * as commitProcessor from "./commit-processor";
 import { GitUserInfo, GitUserProfile } from "./types";
 import { getErrorMessage } from "./utils/errors";
+import * as editor from "./utils/editor";
+import * as commitFile from "./utils/commit-file";
 
 /**
  * Run commit command
@@ -344,18 +346,87 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
 
   console.log("\n");
 
-  const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
+  // Single question with 3 options: Y (approve), n (reject), e (edit first)
+  const { action } = await inquirer.prompt<{ action: string }>([
     {
-      type: "confirm",
-      name: "confirm",
-      message: "Do you approve this commit plan?",
-      default: true,
+      type: "input",
+      name: "action",
+      message: "Do you approve this commit plan? (Y/n/e=edit first)",
+      default: "Y",
+      validate: (input: string) => {
+        const normalized = input.toLowerCase().trim();
+        if (normalized === "" || normalized === "y" || normalized === "n" || normalized === "e" || normalized === "edit") {
+          return true;
+        }
+        return "Please enter Y (approve), n (cancel), or e (edit first)";
+      },
     },
   ]);
 
-  if (!confirm) {
+  const normalized = action.toLowerCase().trim();
+
+  // Handle cancel
+  if (normalized === "n" || normalized === "no") {
     console.log(chalk.yellow("\n❌ Operation cancelled.\n"));
     return;
+  }
+
+  // Handle edit
+  const wantEdit = normalized === "e" || normalized === "edit";
+
+  if (wantEdit) {
+    let tempFile: string | null = null;
+    try {
+      // Create temp file with commit messages
+      tempFile = editor.createTempFile("git-ai-commits");
+      commitFile.writeCommitFile(tempFile, analysisResult.groups);
+
+      console.log(chalk.blue("\n✏️  Opening editor...\n"));
+
+      // Open editor
+      await editor.openEditor(tempFile);
+
+      // Parse edited file
+      const editedCommits = commitFile.parseCommitFile(tempFile);
+
+      // Validate commits (show warnings but continue)
+      const validation = commitFile.validateCommits(editedCommits);
+      if (!validation.valid) {
+        console.log(chalk.yellow("\n⚠️  Validation warnings:\n"));
+        validation.errors.forEach((error) => {
+          console.log(chalk.yellow(`  - ${error}`));
+        });
+        console.log(chalk.gray("\nContinuing with edited commits...\n"));
+      }
+
+      // Merge edited commits back
+      analysisResult.groups = commitFile.mergeEditedCommits(
+        analysisResult.groups,
+        editedCommits
+      );
+
+      if (analysisResult.groups.length === 0) {
+        console.log(
+          chalk.yellow("\n⚠️  No commits remaining after editing.\n")
+        );
+        return;
+      }
+
+      console.log(
+        chalk.green(
+          `\n✓ Commit messages updated. ${analysisResult.groups.length} commit(s) ready.\n`
+        )
+      );
+    } catch (error) {
+      console.log(
+        chalk.red(`\n❌ Editor error: ${getErrorMessage(error)}\n`)
+      );
+      console.log(chalk.yellow("Proceeding with original commit messages...\n"));
+    } finally {
+      if (tempFile) {
+        editor.cleanupTempFile(tempFile);
+      }
+    }
   }
 
   const commitResults = await commitProcessor.processAllCommitGroups(

@@ -11,6 +11,7 @@ export interface Config {
   openaiKey?: string;
   gitUsers?: GitUserProfile[];
   defaultGitUser?: string | null;
+  editor?: string | null;
 }
 
 export interface DiffData {

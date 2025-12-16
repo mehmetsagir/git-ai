@@ -278,6 +278,16 @@ git-ai reset
 
 Reset all configuration (deletes OpenAI key and all git users).
 
+### Set Editor
+
+```bash
+git-ai set-editor
+# or
+git-ai editor
+```
+
+Change your preferred editor for commit message editing. Shows current editor and prompts you to select a new one.
+
 ### Update
 
 ```bash

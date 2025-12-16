@@ -156,4 +156,21 @@ export function removeGitUser(identifier: string): boolean {
   return writeConfig(config);
 }
 
+/**
+ * Get editor preference
+ */
+export function getEditor(): string | null {
+  const config = readConfig();
+  return config?.editor || null;
+}
+
+/**
+ * Save editor preference
+ */
+export function setEditor(editor: string): boolean {
+  const config = readConfig() || {};
+  config.editor = editor;
+  return writeConfig(config);
+}
+
 export { CONFIG_FILE };
