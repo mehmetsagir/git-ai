@@ -118,13 +118,13 @@ function parseHunkHeader(headerLine: string, file: string): DiffHunk {
 
   const oldStart = parseInt(match[1], 10);
   const oldLines = match[2] ? parseInt(match[2], 10) : 1;
+  const oldStart = parseInt(match[1], 10);
+  const oldLines = match[2] ? parseInt(match[2], 10) : 1;
   const newStart = parseInt(match[3], 10);
   const newLines = parseInt(match[4], 10) || 1;
   const context = match[5]?.trim() || undefined;
 
   return {
-    file,
-    oldStart,
     oldLines,
     newStart,
     newLines,
@@ -165,13 +165,12 @@ export function formatHunksForAI(fileHunks: FileHunks[]): string {
  */
 export function createPatchFromHunks(hunks: DiffHunk[]): string {
   if (hunks.length === 0) return "";
+export function createPatchFromHunks(hunks: DiffHunk[]): string {
+  if (hunks.length === 0) return "";
 
   const fileGroups = new Map<string, DiffHunk[]>();
   hunks.forEach((hunk) => {
     const group = fileGroups.get(hunk.file) || [];
-    group.push(hunk);
-    fileGroups.set(hunk.file, group);
-  });
 
   let patch = "";
 
@@ -199,3 +198,5 @@ export function getHunksSummary(fileHunks: FileHunks[]): string {
   return `${totalFiles} file(s), ${totalHunks} change block(s)`;
 }
 
+  return `${totalFiles} file(s), ${totalHunks} change block(s)`;
+}
