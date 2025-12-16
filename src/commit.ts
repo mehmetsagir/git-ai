@@ -264,7 +264,6 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
 
   if (!diffData.all || diffData.all.trim().length === 0) {
     diffSpinner.fail("No diff content found to analyze");
-    return;
   }
 
   const aiSpinner = ora(
@@ -345,6 +344,13 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
     console.log(chalk.yellow(`Commit: ${group.commitMessage}`));
     if (group.commitBody) {
       const bodyLines = group.commitBody.split("\n");
+          hunkCount > 1 ? "s" : ""
+        })`
+      )
+    );
+    console.log(chalk.yellow(`Commit: ${group.commitMessage}`));
+    if (group.commitBody) {
+      const bodyLines = group.commitBody.split("\n");
       bodyLines.forEach((line) => {
         console.log(chalk.gray(`  ${line}`));
       });
@@ -375,13 +381,6 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
   // Handle cancel
   if (normalized === "n" || normalized === "no") {
     console.log(chalk.yellow("\n❌ Operation cancelled.\n"));
-    return;
-  }
-
-  // Handle edit
-  const wantEdit = normalized === "e" || normalized === "edit";
-
-  if (wantEdit) {
     let tempFile: string | null = null;
     try {
       // Create temp file with commit messages
@@ -399,20 +398,20 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
 
       console.log(chalk.blue("\n✏️  Opening editor...\n"));
 
-      // Open editor
-      await editor.openEditor(tempFile);
+    try {
+      // Create temp file with commit messages
+      // Convert HunkCommitGroup to CommitGroup format for editing
+      const groupsForEditing = hunkAnalysisResult.groups.map((g) => ({
+        number: g.number,
+        description: g.description,
+        files: Array.from(new Set(g.hunks.map((h) => h.file))),
+        commitMessage: g.commitMessage,
+        commitBody: g.commitBody,
+      }));
 
-      // Parse edited file
-      const editedCommits = commitFile.parseCommitFile(tempFile);
+      tempFile = editor.createTempFile("git-ai-commits");
+      commitFile.writeCommitFile(tempFile, groupsForEditing);
 
-      // Validate commits (show warnings but continue)
-      const validation = commitFile.validateCommits(editedCommits);
-      if (!validation.valid) {
-        console.log(chalk.yellow("\n⚠️  Validation warnings:\n"));
-        validation.errors.forEach((error) => {
-          console.log(chalk.yellow(`  - ${error}`));
-        });
-        console.log(chalk.gray("\nContinuing with edited commits...\n"));
       }
 
       // Merge edited commits back
@@ -436,6 +435,37 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
       }
       hunkAnalysisResult.groups = updatedGroups;
 
+      if (hunkAnalysisResult.groups.length === 0) {
+        console.log(
+          chalk.yellow("\n⚠️  No commits remaining after editing.\n")
+        );
+        validation.errors.forEach((error) => {
+          console.log(chalk.yellow(`  - ${error}`));
+
+      console.log(
+        chalk.green(
+          `\n✓ Commit messages updated. ${hunkAnalysisResult.groups.length} commit(s) ready.\n`
+        )
+      );
+    } catch (error) {
+        editedCommits
+      );
+
+      // Update hunkAnalysisResult.groups with edited messages
+      const updatedGroups: HunkCommitGroup[] = [];
+      for (const hunkGroup of hunkAnalysisResult.groups) {
+        const merged = mergedGroups.find((g) => g.number === hunkGroup.number);
+        if (merged) {
+    }
+  }
+
+  const commitResults = await hunkCommitProcessor.processAllHunkCommitGroups(
+    hunkAnalysisResult.groups,
+    fileHunks,
+    selectedUser
+  );
+
+  console.log(chalk.blue.bold("\n📊 Summary Report\n"));
       if (hunkAnalysisResult.groups.length === 0) {
         console.log(
           chalk.yellow("\n⚠️  No commits remaining after editing.\n")
