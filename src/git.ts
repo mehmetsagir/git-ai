@@ -330,124 +330,6 @@ export async function getDiffForHunkParsing(
 /**
  * Check if there are changes
  */
- */
-export async function getDiffForHunkParsing(
-  stagedOnlyMode: boolean = false
-): Promise<string> {
-  try {
-    const git = getGitInstance();
-    const status = await git.status();
-
-    let diff = "";
-
-    // In staged-only mode, ONLY get staged changes
-    if (stagedOnlyMode) {
-      // Get staged changes only
-      if (status.staged.length > 0 || status.deleted.length > 0) {
-        const stagedDiff = await git.diff([
-          "--cached",
-          "--unified=3", // 3 lines of context
-          "--no-renames",
-          "--diff-filter=ACDMRT",
-        ]);
-        diff += stagedDiff;
-      }
-
-      // Handle staged deleted files
-      const stagedDeleted = (status.deleted || []).filter((file) => {
-        return status.staged.includes(file);
-      });
-
-      if (stagedDeleted.length > 0) {
-        const deletedInDiff = stagedDeleted.some((file) =>
-          diff.includes(`--- a/${file}`)
-        );
-
-        if (!deletedInDiff) {
-          const deletedDiffs = await Promise.all(
-            stagedDeleted.map((file) => getDeletedFileDiff(file))
-          );
-          const validDeleted = deletedDiffs.filter((d) => d.length > 0);
-          if (validDeleted.length > 0) {
-            if (diff) {
-              diff += "\n\n";
-            }
-            diff += validDeleted.join("\n\n");
-          }
-        }
-      }
-
-      return diff;
-    }
-
-    // Normal mode: Get both staged and unstaged changes
-    // Get staged changes if any
-    if (status.staged.length > 0 || status.deleted.length > 0) {
-      const stagedDiff = await git.diff([
-        "--cached",
-        "--unified=3", // 3 lines of context
-        "--no-renames",
-        "--diff-filter=ACDMRT",
-      ]);
-      diff += stagedDiff;
-    }
-
-    // Get unstaged changes if any
-    const unstagedFiles = status.files.filter((f) => f.working_dir !== " ");
-    if (unstagedFiles.length > 0) {
-      const unstagedDiff = await git.diff([
-        "--unified=3",
-        "--no-renames",
-        "--diff-filter=ACDMRT",
-      ]);
-      if (diff) {
-        diff += "\n\n";
-      }
-      diff += unstagedDiff;
-    }
-
-    // Handle new files
-    const newFiles = status.not_added || [];
-    if (newFiles.length > 0) {
-      const newDiffs = newFiles.map((file) => getNewFileDiff(file));
-      if (diff) {
-        diff += "\n\n";
-      }
-      diff += newDiffs.join("\n\n");
-    }
-
-    // Handle deleted files (if not already in diff)
-    const deletedFiles = status.deleted || [];
-    if (deletedFiles.length > 0) {
-      const deletedInDiff = deletedFiles.some((file) =>
-        diff.includes(`--- a/${file}`)
-      );
-
-      if (!deletedInDiff) {
-        const deletedDiffs = await Promise.all(
-          deletedFiles.map((file) => getDeletedFileDiff(file))
-        );
-        const validDeleted = deletedDiffs.filter((d) => d.length > 0);
-        if (validDeleted.length > 0) {
-          if (diff) {
-            diff += "\n\n";
-          }
-          diff += validDeleted.join("\n\n");
-        }
-      }
-    }
-
-    return diff;
-  } catch (error) {
-    throw new Error(
-      `Error getting diff for hunk parsing: ${getErrorMessage(error)}`
-    );
-  }
-}
-
-/**
- * Check if there are changes
- */
 export async function hasChanges(): Promise<boolean> {
   try {
     const git = getGitInstance();
@@ -457,6 +339,7 @@ export async function hasChanges(): Promise<boolean> {
     throw new Error(`Error checking for changes: ${getErrorMessage(error)}`);
   }
 }
+
 
 /**
  * Get git user info (global and local)

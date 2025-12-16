@@ -58,28 +58,6 @@ export interface HunkAnalysisResult {
 export interface CommitResult {
   group: number;
   message: string;
-
-export interface HunkCommitGroup {
-  number: number;
-  description: string;
-  hunks: HunkIdentifier[]; // References to specific hunks
-  commitMessage: string;
-  commitBody?: string;
-}
-
-export interface AnalysisResult {
-  groups: CommitGroup[];
-  summary?: string;
-}
-
-export interface HunkAnalysisResult {
-  groups: HunkCommitGroup[];
-  summary?: string;
-}
-
-export interface CommitResult {
-  group: number;
-  message: string;
   files: number;
   success: boolean;
   error?: string;

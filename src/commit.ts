@@ -292,9 +292,10 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
   }
 
   // Analyze hunks with AI
-  aiSpinner.text =
-    "🤖 Analyzing change blocks and grouping by feature...";
-  let hunkAnalysisResult: Awaited<ReturnType<typeof openai.analyzeHunksAndGroup>>;
+  aiSpinner.text = "🤖 Analyzing change blocks and grouping by feature...";
+  let hunkAnalysisResult: Awaited<
+    ReturnType<typeof openai.analyzeHunksAndGroup>
+  >;
   try {
     const hunksFormatted = hunkParser.formatHunksForAI(fileHunks);
     hunkAnalysisResult = await openai.analyzeHunksAndGroup(
@@ -306,7 +307,9 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
     // So hunks are already filtered to staged files only
 
     aiSpinner.succeed(
-      `Analysis complete: ${hunkAnalysisResult.groups?.length || 0} groups created`
+      `Analysis complete: ${
+        hunkAnalysisResult.groups?.length || 0
+      } groups created`
     );
   } catch (error) {
     aiSpinner.fail(`OpenAI analysis error: ${getErrorMessage(error)}`);
@@ -328,10 +331,7 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
   hunkAnalysisResult.groups.forEach((group: HunkCommitGroup) => {
     console.log(chalk.cyan(`\nGroup ${group.number}: ${group.description}`));
 
-    // Get unique files from hunks
-    const filesInGroup = Array.from(
-      new Set(group.hunks.map((h) => h.file))
-    );
+    const filesInGroup = Array.from(new Set(group.hunks.map((h) => h.file)));
     const hunkCount = group.hunks.length;
 
     console.log(
@@ -343,15 +343,7 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
     );
     console.log(chalk.yellow(`Commit: ${group.commitMessage}`));
     if (group.commitBody) {
-      const bodyLines = group.commitBody.split("\n");
-          hunkCount > 1 ? "s" : ""
-        })`
-      )
-    );
-    console.log(chalk.yellow(`Commit: ${group.commitMessage}`));
-    if (group.commitBody) {
-      const bodyLines = group.commitBody.split("\n");
-      bodyLines.forEach((line) => {
+      group.commitBody.split("\n").forEach((line) => {
         console.log(chalk.gray(`  ${line}`));
       });
     }
@@ -368,7 +360,13 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
       default: "Y",
       validate: (input: string) => {
         const normalized = input.toLowerCase().trim();
-        if (normalized === "" || normalized === "y" || normalized === "n" || normalized === "e" || normalized === "edit") {
+        if (
+          normalized === "" ||
+          normalized === "y" ||
+          normalized === "n" ||
+          normalized === "e" ||
+          normalized === "edit"
+        ) {
           return true;
         }
         return "Please enter Y (approve), n (cancel), or e (edit first)";
@@ -381,10 +379,13 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
   // Handle cancel
   if (normalized === "n" || normalized === "no") {
     console.log(chalk.yellow("\n❌ Operation cancelled.\n"));
+    return;
+  }
+
+  // Handle edit
+  if (normalized === "e" || normalized === "edit") {
     let tempFile: string | null = null;
     try {
-      // Create temp file with commit messages
-      // Convert HunkCommitGroup to CommitGroup format for editing
       const groupsForEditing = hunkAnalysisResult.groups.map((g) => ({
         number: g.number,
         description: g.description,
@@ -397,30 +398,24 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
       commitFile.writeCommitFile(tempFile, groupsForEditing);
 
       console.log(chalk.blue("\n✏️  Opening editor...\n"));
+      await editor.openEditor(tempFile);
 
-    try {
-      // Create temp file with commit messages
-      // Convert HunkCommitGroup to CommitGroup format for editing
-      const groupsForEditing = hunkAnalysisResult.groups.map((g) => ({
-        number: g.number,
-        description: g.description,
-        files: Array.from(new Set(g.hunks.map((h) => h.file))),
-        commitMessage: g.commitMessage,
-        commitBody: g.commitBody,
-      }));
+      const editedCommits = commitFile.parseCommitFile(tempFile);
+      const validation = commitFile.validateCommits(editedCommits);
 
-      tempFile = editor.createTempFile("git-ai-commits");
-      commitFile.writeCommitFile(tempFile, groupsForEditing);
-
+      if (!validation.valid) {
+        console.log(chalk.yellow("\n⚠️  Invalid commit messages:\n"));
+        validation.errors.forEach((err) =>
+          console.log(chalk.yellow(`  - ${err}`))
+        );
+        return;
       }
 
-      // Merge edited commits back
       const mergedGroups = commitFile.mergeEditedCommits(
         groupsForEditing,
         editedCommits
       );
 
-      // Update hunkAnalysisResult.groups with edited messages
       const updatedGroups: HunkCommitGroup[] = [];
       for (const hunkGroup of hunkAnalysisResult.groups) {
         const merged = mergedGroups.find((g) => g.number === hunkGroup.number);
@@ -431,41 +426,10 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
             commitBody: merged.commitBody,
           });
         }
-        // If not found in merged, the group was deleted - skip it
       }
+
       hunkAnalysisResult.groups = updatedGroups;
 
-      if (hunkAnalysisResult.groups.length === 0) {
-        console.log(
-          chalk.yellow("\n⚠️  No commits remaining after editing.\n")
-        );
-        validation.errors.forEach((error) => {
-          console.log(chalk.yellow(`  - ${error}`));
-
-      console.log(
-        chalk.green(
-          `\n✓ Commit messages updated. ${hunkAnalysisResult.groups.length} commit(s) ready.\n`
-        )
-      );
-    } catch (error) {
-        editedCommits
-      );
-
-      // Update hunkAnalysisResult.groups with edited messages
-      const updatedGroups: HunkCommitGroup[] = [];
-      for (const hunkGroup of hunkAnalysisResult.groups) {
-        const merged = mergedGroups.find((g) => g.number === hunkGroup.number);
-        if (merged) {
-    }
-  }
-
-  const commitResults = await hunkCommitProcessor.processAllHunkCommitGroups(
-    hunkAnalysisResult.groups,
-    fileHunks,
-    selectedUser
-  );
-
-  console.log(chalk.blue.bold("\n📊 Summary Report\n"));
       if (hunkAnalysisResult.groups.length === 0) {
         console.log(
           chalk.yellow("\n⚠️  No commits remaining after editing.\n")
@@ -479,10 +443,10 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
         )
       );
     } catch (error) {
+      console.log(chalk.red(`\n❌ Editor error: ${getErrorMessage(error)}\n`));
       console.log(
-        chalk.red(`\n❌ Editor error: ${getErrorMessage(error)}\n`)
+        chalk.yellow("Proceeding with original commit messages...\n")
       );
-      console.log(chalk.yellow("Proceeding with original commit messages...\n"));
     } finally {
       if (tempFile) {
         editor.cleanupTempFile(tempFile);
