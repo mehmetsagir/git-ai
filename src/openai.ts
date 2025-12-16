@@ -192,4 +192,3 @@ export async function analyzeHunksAndGroup(
     throw new Error(`OpenAI API error: ${message}`);
   }
 }
-
