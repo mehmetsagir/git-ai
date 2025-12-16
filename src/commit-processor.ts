@@ -221,38 +221,32 @@ export async function processAllCommitGroups(
       filesToUse = initialStaged.filter((file) => !processedFiles.has(file));
       // Only run once; remaining groups will be skipped below if no files
     } else {
-      const currentStaged = await git.getStagedFiles();
       const currentChanged = await git.getAllChangedFiles();
 
-      if (currentStaged.length > 0 && processedFiles.size === 0) {
-        // First group and we have staged files - use them
-        filesToUse = currentStaged;
-      } else {
-        // Get remaining files (exclude already processed ones)
-        const remainingFiles = currentChanged.filter(
-          (file) => !processedFiles.has(file)
-        );
+      // Get remaining files (exclude already processed ones)
+      const remainingFiles = currentChanged.filter(
+        (file) => !processedFiles.has(file)
+      );
 
-        // Match group files with remaining files
-        const groupFiles = group.files
-          .map((file) => {
-            const normalizedFile = file.replace(/^\.\//, "").replace(/^\//, "");
-            return remainingFiles.find((changed) => {
-              const normalizedChanged = changed
-                .replace(/^\.\//, "")
-                .replace(/^\//, "");
-              return (
-                normalizedChanged === normalizedFile ||
-                normalizedChanged.endsWith(normalizedFile) ||
-                normalizedFile.endsWith(normalizedChanged)
-              );
-            });
-          })
-          .filter((file): file is string => Boolean(file));
+      // Match group files with remaining files
+      const groupFiles = group.files
+        .map((file) => {
+          const normalizedFile = file.replace(/^\.\//, "").replace(/^\//, "");
+          return remainingFiles.find((changed) => {
+            const normalizedChanged = changed
+              .replace(/^\.\//, "")
+              .replace(/^\//, "");
+            return (
+              normalizedChanged === normalizedFile ||
+              normalizedChanged.endsWith(normalizedFile) ||
+              normalizedFile.endsWith(normalizedChanged)
+            );
+          });
+        })
+        .filter((file): file is string => Boolean(file));
 
-        filesToUse =
-          groupFiles.length > 0 ? groupFiles : remainingFiles.slice(0, 1);
-      }
+      filesToUse =
+        groupFiles.length > 0 ? groupFiles : remainingFiles.slice(0, 1);
     }
 
     if (filesToUse.length === 0) {

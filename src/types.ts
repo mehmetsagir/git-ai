@@ -28,8 +28,30 @@ export interface CommitGroup {
   commitBody?: string;
 }
 
+/**
+ * Hunk-based commit group for smart commit splitting
+ * Allows splitting changes within a single file into multiple commits
+ */
+export interface HunkIdentifier {
+  file: string;
+  hunkIndex: number; // Index of hunk within file's hunks array
+}
+
+export interface HunkCommitGroup {
+  number: number;
+  description: string;
+  hunks: HunkIdentifier[]; // References to specific hunks
+  commitMessage: string;
+  commitBody?: string;
+}
+
 export interface AnalysisResult {
   groups: CommitGroup[];
+  summary?: string;
+}
+
+export interface HunkAnalysisResult {
+  groups: HunkCommitGroup[];
   summary?: string;
 }
 

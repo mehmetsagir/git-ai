@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import * as prompts from './prompts';
-import { AnalysisResult } from './types';
+import { AnalysisResult, HunkAnalysisResult } from './types';
 import { getErrorMessage } from './utils/errors';
 
 let openaiClient: OpenAI | null = null;
@@ -139,6 +139,50 @@ export async function generateChangesSummary(
       throw new Error('No response from OpenAI');
     }
     const result = JSON.parse(content) as { summary: string };
+    return result;
+  } catch (error) {
+    const message = getErrorMessage(error);
+    if (message.includes('API key')) {
+      throw new Error('Invalid OpenAI API key');
+    }
+    throw new Error(`OpenAI API error: ${message}`);
+  }
+}
+
+/**
+ * Analyze git diff hunks and create commit groups
+ * Enables smart commit splitting: one file can be split into multiple commits
+ */
+export async function analyzeHunksAndGroup(
+  hunksFormatted: string,
+  apiKey: string
+): Promise<HunkAnalysisResult> {
+  if (!apiKey) {
+    throw new Error('OpenAI API key is required');
+  }
+
+  initOpenAI(apiKey);
+  const client = getOpenAIClient();
+
+  const systemPrompt = prompts.getHunkAnalysisSystemPrompt();
+  const userPrompt = prompts.getHunkAnalysisUserPrompt(hunksFormatted);
+
+  try {
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.3,
+      response_format: { type: 'json_object' }
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('No response from OpenAI');
+    }
+    const result = JSON.parse(content) as HunkAnalysisResult;
     return result;
   } catch (error) {
     const message = getErrorMessage(error);

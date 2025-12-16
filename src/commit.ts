@@ -4,11 +4,12 @@ import ora from "ora";
 import * as config from "./config";
 import * as git from "./git";
 import * as openai from "./openai";
-import * as commitProcessor from "./commit-processor";
-import { GitUserInfo, GitUserProfile } from "./types";
+import * as hunkCommitProcessor from "./hunk-commit-processor";
+import { GitUserInfo, GitUserProfile, HunkCommitGroup } from "./types";
 import { getErrorMessage } from "./utils/errors";
 import * as editor from "./utils/editor";
 import * as commitFile from "./utils/commit-file";
+import * as hunkParser from "./utils/hunk-parser";
 
 /**
  * Run commit command
@@ -267,74 +268,80 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
   }
 
   const aiSpinner = ora(
-    "🤖 Analyzing diff with OpenAI and creating commit groups..."
+    "🤖 Analyzing changes with smart commit splitting..."
   ).start();
-  let analysisResult: Awaited<ReturnType<typeof openai.analyzeDiffAndGroup>>;
+
+  // Parse diff into hunks for smart commit splitting
+  const hunkParseSpinner = ora("Parsing diff into change blocks...").start();
+  let fileHunks: hunkParser.FileHunks[];
   try {
-    analysisResult = await openai.analyzeDiffAndGroup(diffData.all, openaiKey);
+    // Pass stagedOnlyMode to ensure we only get staged files when needed
+    const diffForParsing = await git.getDiffForHunkParsing(stagedOnlyMode);
+    fileHunks = hunkParser.parseDiffIntoHunks(diffForParsing);
+    const summary = hunkParser.getHunksSummary(fileHunks);
+    hunkParseSpinner.succeed(
+      `Parsed diff: ${summary}${stagedOnlyMode ? " (staged only)" : ""}`
+    );
+  } catch (error) {
+    hunkParseSpinner.fail(`Error parsing diff: ${getErrorMessage(error)}`);
+    return;
+  }
 
-    // In staged-only mode, prune group files to only staged files
-    if (stagedOnlyMode) {
-      // Refresh staged list to be safe
-      const stagedNow = await git.getStagedFiles();
-      const stagedSource = stagedNow.length > 0 ? stagedNow : stagedFiles;
+  if (fileHunks.length === 0) {
+    console.log(chalk.yellow("⚠ No hunks found to analyze.\n"));
+    return;
+  }
 
-      const normalize = (file: string) => file.replace(/^[./]+/, "");
-      const stagedNormalized = stagedSource.map(normalize);
+  // Analyze hunks with AI
+  aiSpinner.text =
+    "🤖 Analyzing change blocks and grouping by feature...";
+  let hunkAnalysisResult: Awaited<ReturnType<typeof openai.analyzeHunksAndGroup>>;
+  try {
+    const hunksFormatted = hunkParser.formatHunksForAI(fileHunks);
+    hunkAnalysisResult = await openai.analyzeHunksAndGroup(
+      hunksFormatted,
+      openaiKey
+    );
 
-      const filterGroupFiles = (groupFiles: string[]): string[] => {
-        const matched: string[] = [];
-        for (const file of groupFiles) {
-          const norm = normalize(file);
-          // Exact match
-          const exactIdx = stagedNormalized.findIndex((sf) => sf === norm);
-          if (exactIdx >= 0) {
-            matched.push(stagedSource[exactIdx]);
-            continue;
-          }
-          // Suffix/prefix match to handle path differences
-          const fuzzyIdx = stagedNormalized.findIndex(
-            (sf) => norm.endsWith(sf) || sf.endsWith(norm)
-          );
-          if (fuzzyIdx >= 0) {
-            matched.push(stagedSource[fuzzyIdx]);
-          }
-        }
-        // Return only matched files (groups with no matches will be filtered out)
-        return Array.from(new Set(matched));
-      };
-
-      analysisResult.groups = (analysisResult.groups || [])
-        .map((group) => {
-          const filteredFiles = filterGroupFiles(group.files);
-          return filteredFiles.length > 0
-            ? { ...group, files: filteredFiles }
-            : null;
-        })
-        .filter((g): g is (typeof analysisResult.groups)[number] => g !== null);
-    }
+    // Note: In staged-only mode, we already got only staged changes in getDiffForHunkParsing
+    // So hunks are already filtered to staged files only
 
     aiSpinner.succeed(
-      `Analysis complete: ${analysisResult.groups?.length || 0} groups created`
+      `Analysis complete: ${hunkAnalysisResult.groups?.length || 0} groups created`
     );
   } catch (error) {
     aiSpinner.fail(`OpenAI analysis error: ${getErrorMessage(error)}`);
     return;
   }
 
-  if (!analysisResult.groups || analysisResult.groups.length === 0) {
+  if (!hunkAnalysisResult.groups || hunkAnalysisResult.groups.length === 0) {
     console.log(chalk.yellow("⚠ Could not create groups.\n"));
     return;
   }
 
   console.log(
-    chalk.green.bold(`\n✓ ${analysisResult.groups.length} groups created\n`)
+    chalk.green.bold(
+      `\n✓ ${hunkAnalysisResult.groups.length} commit groups created (smart splitting enabled)\n`
+    )
   );
   console.log(chalk.blue("📋 Commit Plan:\n"));
 
-  analysisResult.groups.forEach((group) => {
+  hunkAnalysisResult.groups.forEach((group: HunkCommitGroup) => {
     console.log(chalk.cyan(`\nGroup ${group.number}: ${group.description}`));
-    console.log(chalk.gray(`Files: ${group.files.join(", ")}`));
+
+    // Get unique files from hunks
+    const filesInGroup = Array.from(
+      new Set(group.hunks.map((h) => h.file))
+    );
+    const hunkCount = group.hunks.length;
+
+    console.log(
+      chalk.gray(
+        `Files: ${filesInGroup.join(", ")} (${hunkCount} change block${
+          hunkCount > 1 ? "s" : ""
+        })`
+      )
+    );
     console.log(chalk.yellow(`Commit: ${group.commitMessage}`));
     if (group.commitBody) {
       const bodyLines = group.commitBody.split("\n");
@@ -378,8 +385,17 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
     let tempFile: string | null = null;
     try {
       // Create temp file with commit messages
+      // Convert HunkCommitGroup to CommitGroup format for editing
+      const groupsForEditing = hunkAnalysisResult.groups.map((g) => ({
+        number: g.number,
+        description: g.description,
+        files: Array.from(new Set(g.hunks.map((h) => h.file))),
+        commitMessage: g.commitMessage,
+        commitBody: g.commitBody,
+      }));
+
       tempFile = editor.createTempFile("git-ai-commits");
-      commitFile.writeCommitFile(tempFile, analysisResult.groups);
+      commitFile.writeCommitFile(tempFile, groupsForEditing);
 
       console.log(chalk.blue("\n✏️  Opening editor...\n"));
 
@@ -400,12 +416,27 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
       }
 
       // Merge edited commits back
-      analysisResult.groups = commitFile.mergeEditedCommits(
-        analysisResult.groups,
+      const mergedGroups = commitFile.mergeEditedCommits(
+        groupsForEditing,
         editedCommits
       );
 
-      if (analysisResult.groups.length === 0) {
+      // Update hunkAnalysisResult.groups with edited messages
+      const updatedGroups: HunkCommitGroup[] = [];
+      for (const hunkGroup of hunkAnalysisResult.groups) {
+        const merged = mergedGroups.find((g) => g.number === hunkGroup.number);
+        if (merged) {
+          updatedGroups.push({
+            ...hunkGroup,
+            commitMessage: merged.commitMessage,
+            commitBody: merged.commitBody,
+          });
+        }
+        // If not found in merged, the group was deleted - skip it
+      }
+      hunkAnalysisResult.groups = updatedGroups;
+
+      if (hunkAnalysisResult.groups.length === 0) {
         console.log(
           chalk.yellow("\n⚠️  No commits remaining after editing.\n")
         );
@@ -414,7 +445,7 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
 
       console.log(
         chalk.green(
-          `\n✓ Commit messages updated. ${analysisResult.groups.length} commit(s) ready.\n`
+          `\n✓ Commit messages updated. ${hunkAnalysisResult.groups.length} commit(s) ready.\n`
         )
       );
     } catch (error) {
@@ -429,10 +460,10 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
     }
   }
 
-  const commitResults = await commitProcessor.processAllCommitGroups(
-    analysisResult.groups,
-    selectedUser,
-    stagedOnlyMode
+  const commitResults = await hunkCommitProcessor.processAllHunkCommitGroups(
+    hunkAnalysisResult.groups,
+    fileHunks,
+    selectedUser
   );
 
   console.log(chalk.blue.bold("\n📊 Summary Report\n"));
