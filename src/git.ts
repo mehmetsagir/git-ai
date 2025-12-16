@@ -455,12 +455,13 @@ export async function setGitUser(
 export async function stageFiles(files: string[]): Promise<boolean> {
   try {
     const git = getGitInstance();
-    await git.add(files);
-    return true;
-  } catch (error) {
-    throw new Error(`Error staging files: ${getErrorMessage(error)}`);
   }
 }
+
+
+/**
+ * Get git user info (global and local)
+ */
 
 /**
  * Unstage all staged files
