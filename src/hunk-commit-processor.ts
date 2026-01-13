@@ -2,7 +2,6 @@
  * Hunk-based commit processor for smart commit splitting
  * Allows splitting changes within a single file into multiple commits
  */
-
 import chalk from "chalk";
 import ora from "ora";
 import * as git from "./git";
@@ -24,14 +23,13 @@ interface ProcessResult {
 async function processHunkCommitGroup(
   group: HunkCommitGroup,
   allFileHunks: FileHunks[],
-  selectedUser: GitUserInfo | null,
-  fileStates: hunkApplier.FileState[]
+  selectedUser: GitUserInfo | null
 ): Promise<ProcessResult> {
   console.log(
     chalk.cyan(`\n📦 Processing Group ${group.number}: ${group.description}`)
   );
 
-  // Get hunks for this group
+  // Collect the hunks for this group
   const hunksToApply: DiffHunk[] = [];
   for (const hunkId of group.hunks) {
     const fileHunks = allFileHunks.find((fh) => fh.file === hunkId.file);
@@ -62,16 +60,20 @@ async function processHunkCommitGroup(
     return { success: false, filesProcessed: [] };
   }
 
-  // Get unique files affected by these hunks
-  const affectedFiles = Array.from(
-    new Set(hunksToApply.map((h) => h.file))
-  );
+  const affectedFiles = Array.from(new Set(hunksToApply.map((h) => h.file)));
 
-  // Restore files to original state
-  const statesForFiles = fileStates.filter((s) =>
-    affectedFiles.includes(s.file)
-  );
-  hunkApplier.restoreFileStates(statesForFiles);
+  // Reset files to HEAD so we apply cleanly
+  try {
+    await git.resetFilesToHead(affectedFiles);
+  } catch (error) {
+    console.log(
+      chalk.yellow(
+        `⚠ Group ${group.number}: Could not reset files to HEAD: ${getErrorMessage(
+          error
+        )}`
+      )
+    );
+  }
 
   // Apply hunks to working directory
   const applySpinner = ora(
@@ -144,10 +146,10 @@ async function processHunkCommitGroup(
       selectedUser?.name || null,
       selectedUser?.email || null
     );
-
     commitSpinner.succeed(
       `Group ${group.number}: Committed - ${group.commitMessage}`
     );
+
     return {
       success: true,
       filesProcessed: affectedFiles,
@@ -155,9 +157,7 @@ async function processHunkCommitGroup(
     };
   } catch (error) {
     const errorMessage = getErrorMessage(error);
-    commitSpinner.fail(
-      `Group ${group.number}: Commit error - ${errorMessage}`
-    );
+    commitSpinner.fail(`Group ${group.number}: Commit error - ${errorMessage}`);
     return {
       success: false,
       filesProcessed: affectedFiles,
@@ -177,49 +177,99 @@ export async function processAllHunkCommitGroups(
 ): Promise<CommitResult[]> {
   console.log(chalk.blue(`\n📦 Creating ${groups.length} commits...\n`));
 
-  // Get all unique files affected
   const allFiles = Array.from(
     new Set(groups.flatMap((g) => g.hunks.map((h) => h.file)))
   );
 
-  // Save file states for restoration
-  const prepareSpinner = ora("Saving file states...").start();
+  const prepareSpinner = ora("Saving working state...").start();
   const fileStates = await hunkApplier.saveFileStates(allFiles);
   prepareSpinner.succeed(`Saved state for ${fileStates.length} file(s)`);
 
   const commitResults: CommitResult[] = [];
+  const committedHunks = new Set<string>();
 
   try {
     for (const group of groups) {
       const result = await processHunkCommitGroup(
         group,
         allFileHunks,
-        selectedUser,
-        fileStates
+        selectedUser
       );
 
       commitResults.push({
-        group: group.number,
+        number: group.number,
+        description: group.description,
+        files: result.filesProcessed,
         message: result.message || group.commitMessage,
-        files: result.filesProcessed?.length || 0,
         success: result.success,
         error: result.error,
       });
 
-      // Unstage any remaining files after each commit
+      if (result.success) {
+        group.hunks.forEach((h) => {
+          committedHunks.add(`${h.file}:${h.hunkIndex}`);
+        });
+      }
+
       try {
         await git.unstageAll();
-      } catch {
-        // Continue even if error
+      } catch (error) {
+        console.log(
+          chalk.yellow(
+            `⚠ Warning: Could not unstage files: ${getErrorMessage(error)}`
+          )
+        );
       }
     }
   } finally {
-    // Restore all files to working state
-    const restoreSpinner = ora("Restoring working state...").start();
-    hunkApplier.restoreToWorkingState(fileStates);
-    restoreSpinner.succeed("Working state restored");
+    // Restore any uncommitted hunks to working directory
+    const restoreSpinner = ora("Restoring uncommitted changes...").start();
+
+    const uncommittedHunks: DiffHunk[] = [];
+    allFileHunks.forEach((fileHunk) => {
+      fileHunk.hunks.forEach((hunk, index) => {
+        const hunkKey = `${fileHunk.file}:${index}`;
+        if (!committedHunks.has(hunkKey)) {
+          uncommittedHunks.push(hunk);
+        }
+      });
+    });
+
+    try {
+      // Reset files to HEAD first
+      await git.resetFilesToHead(allFiles);
+      if (uncommittedHunks.length > 0) {
+        await hunkApplier.applyHunksToWorkingDirectory(uncommittedHunks);
+        restoreSpinner.succeed(
+          `Restored ${uncommittedHunks.length} uncommitted change(s)`
+        );
+      } else {
+        restoreSpinner.succeed("All changes committed");
+      }
+    } catch (error) {
+      restoreSpinner.fail(
+        `Failed to restore uncommitted changes: ${getErrorMessage(error)}`
+      );
+      console.log(
+        chalk.yellow(
+          "\n⚠️  Some uncommitted changes may have been lost. Check git status.\n"
+        )
+      );
+    }
+
+    // Restore working tree content for unaffected files
+    try {
+      hunkApplier.restoreToWorkingState(fileStates);
+    } catch (error) {
+      console.log(
+        chalk.yellow(
+          `⚠ Warning: Could not restore working state: ${getErrorMessage(
+            error
+          )}`
+        )
+      );
+    }
   }
 
   return commitResults;
 }
-
