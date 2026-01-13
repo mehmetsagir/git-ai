@@ -478,7 +478,7 @@ export async function runCommit(userFlag: string | null = null): Promise<void> {
     commitResults.forEach((result) => {
       if (result.success) {
         console.log(
-          chalk.green(`  ✓ ${result.message} - ${result.files} files`)
+          chalk.green(`  ✓ ${result.message} - ${result.files.length} files`)
         );
       } else {
         console.log(
