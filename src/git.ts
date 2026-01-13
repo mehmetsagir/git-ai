@@ -18,20 +18,20 @@ export async function getStagedDiff(): Promise<string> {
   try {
     const git = getGitInstance();
     const status = await git.status();
-    
+
     // Get standard staged diff (should include deletions, but ensure with --diff-filter)
     const diff = await git.diff([
       "--cached",
       "--no-renames",
       "--diff-filter=ACDMRT", // Include Added, Copied, Deleted, Modified, Renamed, Type-changed
     ]);
-    
+
     // Also explicitly get staged deleted files and ensure they're in the diff
     const stagedDeleted = (status.deleted || []).filter((file) => {
       // Check if file is in staged files
       return status.staged.includes(file);
     });
-    
+
     // If git.diff didn't include deleted files, add them manually
     let deletedDiffs = "";
     if (stagedDeleted.length > 0) {
@@ -39,7 +39,7 @@ export async function getStagedDiff(): Promise<string> {
       const deletedInDiff = stagedDeleted.some((file) =>
         diff.includes(`--- a/${file}`)
       );
-      
+
       if (!deletedInDiff) {
         // Add deleted files that weren't in the diff
         const deletedDiffsArray = await Promise.all(
@@ -50,7 +50,7 @@ export async function getStagedDiff(): Promise<string> {
           .join("\n\n");
       }
     }
-    
+
     if (diff && deletedDiffs) {
       return `${diff}\n\n${deletedDiffs}`;
     }
@@ -141,7 +141,7 @@ export async function getUnstagedDiff(): Promise<string> {
       const deletedInDiff = unstagedDeleted.some((file) =>
         trackedDiff.includes(`--- a/${file}`)
       );
-      
+
       if (!deletedInDiff) {
         // Add deleted files that weren't in the diff
         const deletedDiffsArray = await Promise.all(
