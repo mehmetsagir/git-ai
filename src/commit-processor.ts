@@ -34,7 +34,7 @@ async function processCommitGroup(
   if (!stagedOnlyMode) {
     // Check if files are already staged
     const currentlyStaged = await git.getStagedFiles();
-    const filesAlreadyStaged = filesToUse.filter((file) =>
+    const filesAlreadyStaged = filesToUse.filter((file: string) =>
       currentlyStaged.includes(file)
     );
 
@@ -97,7 +97,7 @@ async function processCommitGroup(
     // Verify only the intended files are staged before committing
     const stagedBeforeCommit = await git.getStagedFiles();
     const unexpectedStaged = stagedBeforeCommit.filter(
-      (file) => !filesToUse.includes(file)
+      (file: string) => !filesToUse.includes(file)
     );
 
     if (unexpectedStaged.length > 0) {
@@ -218,7 +218,7 @@ export async function processAllCommitGroups(
     let filesToUse: string[] = [];
 
     if (stagedOnlyMode) {
-      filesToUse = initialStaged.filter((file) => !processedFiles.has(file));
+      filesToUse = initialStaged.filter((file: string) => !processedFiles.has(file));
       // Only run once; remaining groups will be skipped below if no files
     } else {
       const currentChanged = await git.getAllChangedFiles();
@@ -232,7 +232,7 @@ export async function processAllCommitGroups(
       const groupFiles = group.files
         .map((file) => {
           const normalizedFile = file.replace(/^\.\//, "").replace(/^\//, "");
-          return remainingFiles.find((changed) => {
+          return remainingFiles.find((changed: string) => {
             const normalizedChanged = changed
               .replace(/^\.\//, "")
               .replace(/^\//, "");
@@ -254,9 +254,10 @@ export async function processAllCommitGroups(
         chalk.yellow(`⚠ Group ${group.number}: No files available, skipping.\n`)
       );
       commitResults.push({
-        group: group.number,
+        number: group.number,
+        description: group.description,
+        files: [],
         message: group.commitMessage,
-        files: 0,
         success: false,
         error: "No files available",
       });
@@ -272,9 +273,10 @@ export async function processAllCommitGroups(
     );
 
     commitResults.push({
-      group: group.number,
+      number: group.number,
+      description: group.description,
+      files: result.filesProcessed || [],
       message: result.message || group.commitMessage,
-      files: result.filesProcessed?.length || 0,
       success: result.success,
       error: result.error,
     });
