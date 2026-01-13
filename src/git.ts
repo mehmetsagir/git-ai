@@ -455,13 +455,24 @@ export async function setGitUser(
 export async function stageFiles(files: string[]): Promise<boolean> {
   try {
     const git = getGitInstance();
+    await git.add(files);
+    return true;
+  } catch (error) {
+    throw new Error(`Error staging files: ${getErrorMessage(error)}`);
   }
 }
 
-
 /**
- * Get git user info (global and local)
+ * Reset files to HEAD (discard working directory changes)
  */
+export async function resetFilesToHead(files: string[]): Promise<void> {
+  try {
+    const git = getGitInstance();
+    await git.raw(["checkout", "HEAD", "--", ...files]);
+  } catch (error) {
+    throw new Error(`Error resetting files to HEAD: ${getErrorMessage(error)}`);
+  }
+}
 
 /**
  * Unstage all staged files
