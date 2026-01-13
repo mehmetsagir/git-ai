@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import inquirer from 'inquirer';
 import * as config from './config';
 import * as userManagement from './user-management';
+import { GitUserProfile } from './types';
 
 /**
  * Add a new git user
@@ -15,11 +16,11 @@ export async function addUser(): Promise<void> {
     return;
   }
 
-  const existingProfiles = config.getGitUsers();
-  
+  const existingProfiles: GitUserProfile[] = config.getGitUsers();
+
   if (existingProfiles.length > 0) {
     console.log(chalk.blue('Current git user profiles:\n'));
-    existingProfiles.forEach((profile, index) => {
+    existingProfiles.forEach((profile: GitUserProfile, index: number) => {
       const shortcutInfo = profile.shortcut 
         ? chalk.yellow(` [shortcut: ${profile.shortcut}]`)
         : '';
