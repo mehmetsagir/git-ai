@@ -469,7 +469,7 @@ export async function stageFiles(files: string[]): Promise<boolean> {
 export async function unstageAll(): Promise<boolean> {
   try {
     const git = getGitInstance();
-    await git.reset();
+    await git.reset(["--mixed", "HEAD"]);
     return true;
   } catch (error) {
     throw new Error(`Error unstaging: ${getErrorMessage(error)}`);
