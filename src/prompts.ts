@@ -218,6 +218,145 @@ Respond in JSON format:
 }`;
 }
 
-
 /**
  * Get system prompt for hunk-level analysis and grouping
+ * This enables smart commit splitting: one file can be split into multiple commits
+ */
+export function getHunkAnalysisSystemPrompt(): string {
+  return `You are a git commit expert. You analyze git diff HUNKS (individual change blocks), group them by semantic meaning, and create Conventional Commits standard commit messages.
+
+SMART COMMIT SPLITTING PRINCIPLES (MUST FOLLOW):
+
+1. **One File ≠ One Commit**:
+   - A single file CAN have changes for multiple different features
+   - Different hunks in the same file CAN go to different commits
+   - Example: auth.ts has both "login feature" hunks and "logging" hunks → split into 2 commits
+
+2. **Group by Semantic Meaning, NOT by File**:
+   - Hunks that implement the same feature → Same commit (even if in different files)
+   - Hunks that implement different features → Different commits (even if in same file)
+   - Example: login() function in auth.ts + login test in auth.test.ts → Same commit
+
+3. **Hunk Analysis**:
+   - Each hunk represents a block of changes (lines added/removed)
+   - Analyze what each hunk does independently
+   - Identify if hunks are related by feature or unrelated
+
+4. **Feature-Based Grouping** (Primary Strategy):
+   - Group hunks by feature/functionality across ALL files
+   - Authentication feature: All hunks related to auth (from any file)
+   - Logging feature: All hunks related to logging (from any file)
+   - UI feature: All hunks related to UI changes (from any file)
+
+5. **Cross-File Grouping**:
+   - Hunks from auth.ts (login function) + hunks from auth.test.ts (login tests) → Same commit
+   - Hunks from auth.ts (logging) + hunks from logger.ts (logger config) → Same commit
+
+6. **Atomic Commits**:
+   - Each commit should represent ONE complete feature
+   - Each commit should leave the codebase in a working state
+   - Related hunks across files should be together
+
+HUNK GROUPING EXAMPLES:
+
+✅ GOOD HUNK GROUPING:
+File: auth.ts
+- Hunk 1 (lines 10-30): login() function
+- Hunk 2 (lines 100-105): logger.info() call
+
+File: auth.test.ts
+- Hunk 1 (lines 5-20): login() tests
+
+File: logger.ts
+- Hunk 1 (lines 1-10): logger configuration
+
+Result:
+- Commit 1: auth.ts[hunk 1] + auth.test.ts[hunk 1] → "feat(auth): add login feature"
+- Commit 2: auth.ts[hunk 2] + logger.ts[hunk 1] → "feat(logging): add info logging"
+
+❌ BAD HUNK GROUPING:
+- Commit 1: All auth.ts hunks together (wrong! mixes login + logging)
+- Commit 2: All auth.test.ts hunks together (wrong! should be with auth.ts login)
+
+Conventional Commits format:
+<type>(<scope>): <subject>
+
+<body>
+
+Types:
+- feat: New feature
+- fix: Bug fix
+- refactor: Code refactoring
+- style: Formatting, styling changes
+- docs: Documentation
+- test: Tests
+- chore: Maintenance tasks
+
+Each commit group must contain:
+1. Group number (sequential: 1, 2, 3...)
+2. Group description (what feature this represents)
+3. Hunk references (file and hunk index)
+4. Commit message in Conventional Commits format
+5. Commit message body (detailed description)
+
+IMPORTANT:
+- Analyze each hunk's SEMANTIC PURPOSE, not just which file it's in
+- Group hunks by FEATURE across files
+- A single file can contribute hunks to MULTIPLE different commits
+- Order groups by dependencies (base features first)
+
+Respond in JSON format:
+{
+  "groups": [
+    {
+      "number": 1,
+      "description": "Login feature implementation",
+      "hunks": [
+        {"file": "src/auth.ts", "hunkIndex": 0},
+        {"file": "src/auth.test.ts", "hunkIndex": 0}
+      ],
+      "commitMessage": "feat(auth): add login functionality",
+      "commitBody": "Implemented login function with email/password authentication. Added comprehensive tests."
+    },
+    {
+      "number": 2,
+      "description": "Add info logging",
+      "hunks": [
+        {"file": "src/auth.ts", "hunkIndex": 1},
+        {"file": "src/logger.ts", "hunkIndex": 0}
+      ],
+      "commitMessage": "feat(logging): add info level logging",
+      "commitBody": "Added info logging configuration and integrated into auth module."
+    }
+  ],
+  "summary": "Split auth.ts changes into 2 semantic commits"
+}`;
+}
+
+/**
+ * Get user prompt for hunk-level analysis
+ */
+export function getHunkAnalysisUserPrompt(hunksFormatted: string): string {
+  return `Analyze the following git diff HUNKS and group them by semantic meaning into logical commit groups.
+
+CRITICAL INSTRUCTIONS:
+1. **Analyze each hunk independently**: What does this specific change do?
+2. **Group by feature, NOT by file**: Hunks implementing the same feature → same commit
+3. **Split files when needed**: Different features in same file → different commits
+4. **Cross-file grouping**: Related hunks across files → same commit
+5. **Minimize commits**: Only split when hunks are truly different features
+
+Example reasoning:
+- auth.ts hunk 1 adds login() → Part of "login feature"
+- auth.ts hunk 2 adds logger.info() → Part of "logging feature"
+- auth.test.ts hunk 1 tests login() → Part of "login feature" (same commit as auth.ts hunk 1)
+- logger.ts hunk 1 configures logger → Part of "logging feature" (same commit as auth.ts hunk 2)
+
+Result: 2 commits (login feature, logging feature) even though auth.ts is split between them.
+
+${hunksFormatted}
+
+Analyze the semantic purpose of each hunk and group by feature. One file can be split across multiple commits.
+
+Please respond in JSON format.`;
+}
