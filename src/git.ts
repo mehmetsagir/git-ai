@@ -340,7 +340,6 @@ export async function hasChanges(): Promise<boolean> {
   }
 }
 
-
 /**
  * Get git user info (global and local)
  */
