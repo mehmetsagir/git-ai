@@ -56,5 +56,15 @@ export interface HunkAnalysisResult {
 }
 
 export interface CommitResult {
-  group: number;
+  number: number;
+  description: string;
+  files: string[];
   message: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface GitUserInfo {
+  name: string | null;
+  email: string | null;
+}
