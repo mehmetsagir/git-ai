@@ -1,14 +1,13 @@
-# Git AI
+# git-ai
 
-AI-powered git commit tool. Analyzes changes, groups them logically, and creates commits in Conventional Commits format.
+AI-powered git commit tool that analyzes your changes, groups them logically, and creates meaningful commits following the Conventional Commits standard.
 
 ## Features
 
-- **Smart Grouping**: Groups related files together by feature
-- **Conventional Commits**: Uses standard commit message format (feat, fix, refactor, etc.)
-- **All Changes Included**: Handles tracked, untracked, new, and deleted files
-- **Safe**: Shows commit plan for approval before committing
-- **Stash Viewer**: Browse git stashes in a web UI with syntax highlighting
+- **Smart Commit Grouping** - AI analyzes your changes and groups related files together by feature or purpose
+- **Conventional Commits** - Automatically generates commit messages in standard format (`feat`, `fix`, `refactor`, `chore`, etc.)
+- **Stash Viewer** - Browse and manage git stashes in a beautiful web UI with diff viewer
+- **Safe Workflow** - Always shows a commit plan for your approval before making any changes
 
 ## Installation
 
@@ -18,26 +17,33 @@ npm install -g @mehmetsagir/git-ai
 
 ## Setup
 
+Before using git-ai, you need to configure your OpenAI API key:
+
 ```bash
 git-ai setup
 ```
 
-Enter your OpenAI API key when prompted.
+You'll be prompted to enter your OpenAI API key. Get one from [OpenAI Platform](https://platform.openai.com/api-keys).
 
-## Usage
+## Commands
+
+### `git-ai commit`
+
+Analyze all changes in your repository and create intelligent commits.
 
 ```bash
 git-ai commit
 ```
 
-The tool will:
-1. Analyze all changes (staged, unstaged, and untracked)
-2. Group related files by feature
-3. Show commit plan for approval
-4. Create commits
+**What it does:**
+1. Scans all changes (staged, unstaged, and untracked files)
+2. Sends diff to AI for analysis
+3. Groups related files together
+4. Generates commit messages for each group
+5. Shows you the commit plan for approval
+6. Creates commits after your confirmation
 
-### Example
-
+**Example output:**
 ```
 🤖 Git AI
 
@@ -73,29 +79,41 @@ Changes:
 ⚠ Don't forget to push: git push
 ```
 
-## Commands
+### `git-ai stash`
 
-| Command | Description |
-|---------|-------------|
-| `git-ai setup` | Configure OpenAI API key |
-| `git-ai commit` | Analyze and create commits |
-| `git-ai stash` | View git stashes in browser |
-| `git-ai reset` | Reset configuration |
-
-### Stash Viewer
+Open a web-based UI to browse and manage your git stashes.
 
 ```bash
 git-ai stash
 ```
 
-Opens a browser with a visual interface to view all your git stashes:
-- See all stashes with branch, message, and date
-- Click to expand and view the full diff
+**Features:**
+- View all stashes in a clean list
+- Click to see changed files and full diff
+- VS Code-style split diff view (Original | Modified)
+- Apply stash to your working directory
+- Delete stashes you no longer need
 - Syntax highlighting for code changes
+
+### `git-ai setup`
+
+Configure or update your OpenAI API key.
+
+```bash
+git-ai setup
+```
+
+### `git-ai reset`
+
+Reset all configuration (removes stored API key).
+
+```bash
+git-ai reset
+```
 
 ## Configuration
 
-Config file: `~/.git-ai/config.json`
+Configuration is stored in `~/.git-ai/config.json`:
 
 ```json
 {
@@ -106,54 +124,111 @@ Config file: `~/.git-ai/config.json`
 ## Requirements
 
 - Node.js >= 14.0.0
-- OpenAI API key
 - Git repository
+- OpenAI API key
 
-## Changelog
+## Contributing
 
-### v0.0.16
-**Stash Viewer**
+Contributions are welcome! Here's how you can help:
 
-- New `git-ai stash` command
-- Browse stashes in a web UI
-- View diffs with syntax highlighting
-- Click to expand/collapse each stash
+### Development Setup
 
-### v0.0.15
-**Code Cleanup**
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/mehmetsagir/git-ai.git
+   cd git-ai
+   ```
 
-- Removed 7 unused functions from git.ts (54% smaller)
-- Removed unused `createPatch` from hunk-parser.ts
-- Cleaned up package.json metadata
-- Added `bugs` and `homepage` fields
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-### v0.0.14
-**Major Refactor - Stability Release**
+3. **Build the project**
+   ```bash
+   npm run build
+   ```
 
-**Added:**
-- Catch-all group for files missed by AI grouping
-- Support for untracked (new) files in commit analysis
-- Robust diff parser with file path validation
+4. **Test locally**
+   ```bash
+   # Run directly
+   node bin/git-ai [command]
 
-**Changed:**
-- Simplified to file-based grouping (more reliable than hunk-based)
-- Improved error handling throughout
+   # Or link globally
+   npm link
+   git-ai [command]
+   ```
 
-**Removed:**
-- User management features (add, list, remove users)
-- Editor-based commit message editing
-- Update notifier
-- Hunk-level commit splitting (caused file corruption issues)
-- Summary command
+### Project Structure
 
-**Fixed:**
-- Parser no longer misinterprets diff content as file names
-- All changed files now included in commits (no orphaned files)
-- No more "corrupt patch" errors
+```
+src/
+├── index.ts          # CLI entry point and command routing
+├── git.ts            # Git operations (using simple-git)
+├── openai.ts         # OpenAI API integration
+├── commit.ts         # Commit workflow logic
+├── stash.ts          # Stash viewer web UI
+├── config.ts         # Configuration management
+├── setup.ts          # Setup wizard
+├── reset.ts          # Reset configuration
+├── prompts.ts        # AI prompts for commit analysis
+├── types.ts          # TypeScript type definitions
+└── utils/
+    ├── errors.ts     # Error handling utilities
+    └── hunk-parser.ts # Diff parsing utilities
+```
 
-### v0.0.13 and earlier
-- Initial releases with experimental hunk-based commit splitting
+### Making Changes
+
+1. Create a new branch for your feature
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+
+2. Make your changes and test them locally
+
+3. Build and verify there are no TypeScript errors
+   ```bash
+   npm run build
+   ```
+
+4. Commit your changes using conventional commits format
+   ```bash
+   git commit -m "feat: add new feature"
+   ```
+
+5. Push and create a pull request
+   ```bash
+   git push origin feature/your-feature-name
+   ```
+
+### Commit Message Guidelines
+
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+- `feat:` - New features
+- `fix:` - Bug fixes
+- `refactor:` - Code changes that neither fix bugs nor add features
+- `chore:` - Maintenance tasks
+- `docs:` - Documentation changes
+- `style:` - Code style changes (formatting, etc.)
+- `test:` - Adding or updating tests
+
+### Reporting Issues
+
+Found a bug or have a suggestion? [Open an issue](https://github.com/mehmetsagir/git-ai/issues) with:
+
+- Clear description of the problem or suggestion
+- Steps to reproduce (for bugs)
+- Expected vs actual behavior
+- Your environment (Node.js version, OS, etc.)
 
 ## License
 
 MIT
+
+## Links
+
+- [GitHub Repository](https://github.com/mehmetsagir/git-ai)
+- [npm Package](https://www.npmjs.com/package/@mehmetsagir/git-ai)
+- [Report Issues](https://github.com/mehmetsagir/git-ai/issues)
