@@ -1,12 +1,14 @@
-import simpleGit from "simple-git";
+import simpleGit, { SimpleGit } from "simple-git";
 import * as path from "path";
 import { FileInfo } from "./types";
 
-const git = simpleGit(process.cwd());
+function getGit(): SimpleGit {
+  return simpleGit(process.cwd());
+}
 
 export async function isGitRepository(): Promise<boolean> {
   try {
-    await git.status();
+    await getGit().status();
     return true;
   } catch {
     return false;
@@ -14,12 +16,12 @@ export async function isGitRepository(): Promise<boolean> {
 }
 
 export async function hasChanges(): Promise<boolean> {
-  const status = await git.status();
+  const status = await getGit().status();
   return status.files.length > 0;
 }
 
 export async function getChangedFiles(): Promise<FileInfo[]> {
-  const status = await git.status();
+  const status = await getGit().status();
   const files: FileInfo[] = [];
   const seen = new Set<string>();
 
@@ -62,23 +64,23 @@ function isBinaryFile(filePath: string): boolean {
 
 export async function stageFiles(files: string[]): Promise<void> {
   if (files.length === 0) return;
-  await git.add(files);
+  await getGit().add(files);
 }
 
 export async function unstageAll(): Promise<void> {
   try {
-    await git.reset(["HEAD"]);
+    await getGit().reset(["HEAD"]);
   } catch {
     // Ignore if nothing staged
   }
 }
 
 export async function createCommit(message: string): Promise<void> {
-  await git.commit(message);
+  await getGit().commit(message);
 }
 
 export async function getStagedFiles(): Promise<string[]> {
-  const status = await git.status();
+  const status = await getGit().status();
   return status.staged;
 }
 
@@ -86,14 +88,14 @@ export async function getFullDiff(): Promise<string> {
   let diff = "";
 
   try {
-    const unstaged = await git.diff();
+    const unstaged = await getGit().diff();
     if (unstaged) diff = unstaged;
   } catch {
     // Ignore
   }
 
   try {
-    const staged = await git.diff(["--cached"]);
+    const staged = await getGit().diff(["--cached"]);
     if (staged) {
       diff = diff ? diff + "\n" + staged : staged;
     }
@@ -115,7 +117,7 @@ export interface StashEntry {
 export async function getStashList(): Promise<StashEntry[]> {
   try {
     // Use git.raw for better compatibility
-    const result = await git.raw(["stash", "list", "--format=%H|%s|%ci"]);
+    const result = await getGit().raw(["stash", "list", "--format=%H|%s|%ci"]);
     if (!result || !result.trim()) return [];
 
     const lines = result.trim().split("\n");
@@ -135,7 +137,7 @@ export async function getStashList(): Promise<StashEntry[]> {
   } catch (err) {
     // Fallback: try without format
     try {
-      const result = await git.raw(["stash", "list"]);
+      const result = await getGit().raw(["stash", "list"]);
       if (!result || !result.trim()) return [];
 
       const lines = result.trim().split("\n");
@@ -162,7 +164,7 @@ export async function getStashList(): Promise<StashEntry[]> {
 
 export async function getStashDiff(index: number): Promise<string> {
   try {
-    const result = await git.raw(["stash", "show", "-p", `stash@{${index}}`]);
+    const result = await getGit().raw(["stash", "show", "-p", `stash@{${index}}`]);
     return result || "";
   } catch {
     return "";
@@ -171,7 +173,7 @@ export async function getStashDiff(index: number): Promise<string> {
 
 export async function getStashFiles(index: number): Promise<string[]> {
   try {
-    const result = await git.raw(["stash", "show", "--name-only", `stash@{${index}}`]);
+    const result = await getGit().raw(["stash", "show", "--name-only", `stash@{${index}}`]);
     if (!result) return [];
     return result.trim().split("\n").filter(f => f.trim());
   } catch {
@@ -180,9 +182,9 @@ export async function getStashFiles(index: number): Promise<string[]> {
 }
 
 export async function applyStash(index: number): Promise<void> {
-  await git.raw(["stash", "apply", `stash@{${index}}`]);
+  await getGit().raw(["stash", "apply", `stash@{${index}}`]);
 }
 
 export async function dropStash(index: number): Promise<void> {
-  await git.raw(["stash", "drop", `stash@{${index}}`]);
+  await getGit().raw(["stash", "drop", `stash@{${index}}`]);
 }
