@@ -64,8 +64,7 @@ export async function runCommit(): Promise<void> {
             content: "",
             summary: fileInfo.status === "new" ? "New file" :
                      fileInfo.status === "deleted" ? "Deleted file" : "Modified file"
-          }],
-          fullDiff: ""
+          }]
         });
       }
     }
