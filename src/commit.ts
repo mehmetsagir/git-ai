@@ -4,494 +4,258 @@ import ora from "ora";
 import * as config from "./config";
 import * as git from "./git";
 import * as openai from "./openai";
-import * as hunkCommitProcessor from "./hunk-commit-processor";
-import { GitUserInfo, GitUserProfile, HunkCommitGroup } from "./types";
+import { parseDiff, formatForAI, getStats, FileDiff } from "./utils/hunk-parser";
+import { CommitResult } from "./types";
 import { getErrorMessage } from "./utils/errors";
-import * as editor from "./utils/editor";
-import * as commitFile from "./utils/commit-file";
-import * as hunkParser from "./utils/hunk-parser";
 
-/**
- * Run commit command
- */
-export async function runCommit(userFlag: string | null = null): Promise<void> {
-  console.log(chalk.blue.bold("\n🤖 Git Commit AI\n"));
+export async function runCommit(): Promise<void> {
+  console.log(chalk.blue.bold("\n🤖 Git AI\n"));
 
-  if (!config.configExists()) {
-    console.log(
-      chalk.yellow("⚠ Configuration not found. Please run setup first.\n")
-    );
-    console.log(chalk.blue("Run: git-ai setup\n"));
+  // Check config
+  const apiKey = config.getOpenAIKey();
+  if (!apiKey) {
+    console.log(chalk.yellow("⚠ Setup required. Run: git-ai setup\n"));
     return;
   }
 
-  const openaiKey = config.getOpenAIKey();
-  if (!openaiKey) {
-    console.log(
-      chalk.yellow("⚠ OpenAI API key not found. Please run setup first.\n")
-    );
-    console.log(chalk.blue("Run: git-ai setup\n"));
+  // Check git repo
+  if (!(await git.isGitRepository())) {
+    console.log(chalk.red("❌ Not a git repository\n"));
     return;
   }
 
-  const isRepo = await git.isGitRepository();
-  if (!isRepo) {
-    console.log(chalk.red("❌ This directory is not a git repository!\n"));
+  // Check for changes
+  if (!(await git.hasChanges())) {
+    console.log(chalk.yellow("⚠ No changes to commit\n"));
     return;
   }
 
-  const hasChanges = await git.hasChanges();
-  if (!hasChanges) {
-    console.log(chalk.yellow("⚠ No changes found to commit.\n"));
-    return;
-  }
+  // Get diff and parse into hunks
+  const spinner = ora("Analyzing changes...").start();
+  let fileDiffs: FileDiff[];
+  let formattedDiff: string;
+  let stats: string;
 
-  const gitUsers = config.getGitUsers();
-  let selectedUser: GitUserInfo | null = null;
+  try {
+    const rawDiff = await git.getFullDiff();
 
-  if (gitUsers.length === 0) {
-    console.log(
-      chalk.yellow("⚠ No git user profile found. Setup is recommended.\n")
-    );
-    try {
-      const currentUser = await git.getGitUserInfo();
-      if (currentUser.name && currentUser.email) {
-        selectedUser = {
-          name: currentUser.name,
-          email: currentUser.email,
-        };
-        console.log(
-          chalk.blue(`Git user: ${currentUser.name} <${currentUser.email}>\n`)
-        );
-      } else {
-        console.log(chalk.red("❌ Could not get git user info!\n"));
-        return;
-      }
-    } catch (error) {
-      console.log(
-        chalk.red(`❌ Could not get git user info: ${getErrorMessage(error)}\n`)
-      );
+    if (!rawDiff.trim()) {
+      spinner.fail("No diff found");
       return;
     }
-  } else {
-    if (userFlag) {
-      const userFlagLower = userFlag.toLowerCase().trim();
 
-      let foundUser: GitUserProfile | undefined = gitUsers.find(
-        (u) => u.shortcut === userFlagLower
-      );
+    fileDiffs = parseDiff(rawDiff);
+    formattedDiff = formatForAI(fileDiffs);
+    stats = getStats(fileDiffs);
 
-      if (!foundUser) {
-        foundUser = gitUsers.find(
-          (u) =>
-            u.id === userFlag ||
-            u.id === userFlagLower ||
-            u.email === userFlag ||
-            u.email.toLowerCase() === userFlagLower
-        );
-      }
-
-      if (!foundUser) {
-        console.log(chalk.red(`❌ Git user not found: ${userFlag}\n`));
-        console.log(chalk.blue("Available user profiles:\n"));
-        gitUsers.forEach((u) => {
-          const shortcutInfo = u.shortcut
-            ? chalk.yellow(` [shortcut: ${u.shortcut}]`)
-            : "";
-          console.log(chalk.cyan(`  - ${u.label}${shortcutInfo}`));
-        });
-        console.log(
-          chalk.blue("\nUsage: git-ai commit --user <shortcut|email|id>\n")
-        );
-        return;
-      }
-
-      selectedUser = {
-        name: foundUser.name,
-        email: foundUser.email,
-      };
-
-      const shortcutInfo = foundUser.shortcut
-        ? chalk.yellow(` (shortcut: ${foundUser.shortcut})`)
-        : "";
-      console.log(
-        chalk.blue(
-          `Git user: ${foundUser.name} <${foundUser.email}>${shortcutInfo}\n`
-        )
-      );
-    } else {
-      const defaultUserId = config.getDefaultGitUser();
-      if (defaultUserId) {
-        const defaultUser = gitUsers.find((u) => u.id === defaultUserId);
-        if (defaultUser) {
-          selectedUser = {
-            name: defaultUser.name,
-            email: defaultUser.email,
-          };
-        }
-      }
-
-      if (gitUsers.length > 1 && !selectedUser) {
-        const { userId } = await inquirer.prompt<{ userId: string }>([
-          {
-            type: "list",
-            name: "userId",
-            message: "Select git user:",
-            choices: gitUsers.map((u) => ({
-              name: u.label,
-              value: u.id,
-            })),
-          },
-        ]);
-        const chosenUser = gitUsers.find((u) => u.id === userId);
-        if (chosenUser) {
-          selectedUser = {
-            name: chosenUser.name,
-            email: chosenUser.email,
-          };
-        }
-      } else if (!selectedUser && gitUsers.length > 0) {
-        selectedUser = {
-          name: gitUsers[0].name,
-          email: gitUsers[0].email,
-        };
-      }
-
-      if (selectedUser) {
-        console.log(
-          chalk.blue(`Git user: ${selectedUser.name} <${selectedUser.email}>\n`)
-        );
-      }
-    }
-  }
-
-  // Verify current git config matches selected user
-  if (selectedUser) {
-    try {
-      const currentGitUser = await git.getGitUserInfo();
-      if (
-        currentGitUser.name !== selectedUser.name ||
-        currentGitUser.email !== selectedUser.email
-      ) {
-        console.log(
-          chalk.yellow(
-            `⚠ Git user will be changed to: ${selectedUser.name} <${selectedUser.email}>\n`
-          )
-        );
-      }
-    } catch (error) {
-      // Continue even if we can't verify
-    }
-  }
-
-  // Check git status and inform user
-  const stagedFiles = await git.getStagedFiles();
-  const allChangedFiles = await git.getAllChangedFiles();
-  const unstagedFiles = allChangedFiles.filter(
-    (file) => !stagedFiles.includes(file)
-  );
-  const stagedOnlyMode = stagedFiles.length > 0;
-
-  if (stagedFiles.length > 0) {
-    console.log(
-      chalk.blue(
-        `📦 Found ${stagedFiles.length} staged file(s). These will be analyzed and committed.\n`
-      )
-    );
-    if (unstagedFiles.length > 0) {
-      console.log(
-        chalk.blue(
-          `ℹ Ignoring ${unstagedFiles.length} unstaged file(s) because staged files exist.\n`
-        )
-      );
-    }
-  } else if (unstagedFiles.length > 0) {
-    console.log(
-      chalk.blue(
-        `📝 No staged files. Found ${unstagedFiles.length} unstaged file(s). These will be analyzed and committed.\n`
-      )
-    );
-  } else {
-    console.log(chalk.yellow("⚠ No changes found to commit.\n"));
-    return;
-  }
-
-  const diffSpinner = ora("Analyzing changes...").start();
-  let diffData;
-  try {
-    if (stagedOnlyMode) {
-      const staged = await git.getStagedDiff();
-      diffData = {
-        staged,
-        unstaged: "",
-        all: staged,
-      };
-    } else {
-      diffData = await git.getAllDiff();
-
-      // Check if we have actual diff content
-      const hasStaged = diffData.staged && diffData.staged.trim().length > 0;
-      const hasUnstaged =
-        diffData.unstaged && diffData.unstaged.trim().length > 0;
-
-      if (!hasStaged && !hasUnstaged) {
-        diffSpinner.fail("No diff content found");
-        console.log(
-          chalk.yellow(
-            `ℹ Found ${allChangedFiles.length} file(s) but no diff content (may be renames/permissions only).\n`
-          )
-        );
-        return;
-      }
-
-      // Combine staged and unstaged diffs
-      if (!hasStaged && hasUnstaged) {
-        diffData.all = diffData.unstaged;
-      } else if (hasStaged && !hasUnstaged) {
-        diffData.all = diffData.staged;
-      } else {
-        diffData.all = `${diffData.staged}\n${diffData.unstaged}`.trim();
-      }
-    }
-
-    diffSpinner.succeed(
-      stagedOnlyMode ? "Staged changes analyzed" : "Changes analyzed"
-    );
+    const totalHunks = fileDiffs.reduce((sum, f) => sum + f.hunks.length, 0);
+    spinner.succeed(`Found ${fileDiffs.length} file(s), ${totalHunks} change(s)`);
   } catch (error) {
-    diffSpinner.fail(`Error: ${getErrorMessage(error)}`);
+    spinner.fail(`Error: ${getErrorMessage(error)}`);
     return;
   }
 
-  if (!diffData.all || diffData.all.trim().length === 0) {
-    diffSpinner.fail("No diff content found to analyze");
+  // Show files and hunks
+  console.log(chalk.gray("\nChanges:"));
+  for (const file of fileDiffs) {
+    const icon = file.isNew ? "+" : file.isDeleted ? "-" : "~";
+    const suffix = file.isBinary ? " (binary)" : ` (${file.hunks.length} hunk${file.hunks.length > 1 ? "s" : ""})`;
+    console.log(chalk.gray(`  ${icon} ${file.file}${suffix}`));
   }
+  console.log();
 
-  const aiSpinner = ora(
-    "🤖 Analyzing changes with smart commit splitting..."
-  ).start();
+  // Analyze with AI
+  const aiSpinner = ora("Grouping with AI...").start();
+  let result: Awaited<ReturnType<typeof openai.analyzeAndGroup>>;
 
-  // Parse diff into hunks for smart commit splitting
-  const hunkParseSpinner = ora("Parsing diff into change blocks...").start();
-  let fileHunks: hunkParser.FileHunks[];
   try {
-    // Pass stagedOnlyMode to ensure we only get staged files when needed
-    const diffForParsing = await git.getDiffForHunkParsing(stagedOnlyMode);
-    fileHunks = hunkParser.parseDiffIntoHunks(diffForParsing);
-    const summary = hunkParser.getHunksSummary(fileHunks);
-    hunkParseSpinner.succeed(
-      `Parsed diff: ${summary}${stagedOnlyMode ? " (staged only)" : ""}`
-    );
+    result = await openai.analyzeAndGroup(formattedDiff, stats, apiKey);
+    aiSpinner.succeed(`Created ${result.groups?.length || 0} commit group(s)`);
   } catch (error) {
-    hunkParseSpinner.fail(`Error parsing diff: ${getErrorMessage(error)}`);
+    aiSpinner.fail(`AI error: ${getErrorMessage(error)}`);
     return;
   }
 
-  if (fileHunks.length === 0) {
-    console.log(chalk.yellow("⚠ No hunks found to analyze.\n"));
+  if (!result.groups || result.groups.length === 0) {
+    console.log(chalk.yellow("⚠ Could not create commit groups\n"));
     return;
   }
 
-  // Analyze hunks with AI
-  aiSpinner.text = "🤖 Analyzing change blocks and grouping by feature...";
-  let hunkAnalysisResult: Awaited<
-    ReturnType<typeof openai.analyzeHunksAndGroup>
-  >;
-  try {
-    const hunksFormatted = hunkParser.formatHunksForAI(fileHunks);
-    hunkAnalysisResult = await openai.analyzeHunksAndGroup(
-      hunksFormatted,
-      openaiKey
-    );
+  // Convert hunk-based groups to file-based groups
+  // Each file goes to the FIRST group that references any of its hunks
+  const fileToGroup = new Map<string, number>();
+  const fileBasedGroups: Array<{
+    number: number;
+    description: string;
+    files: string[];
+    commitMessage: string;
+    commitBody?: string;
+  }> = [];
 
-    // Note: In staged-only mode, we already got only staged changes in getDiffForHunkParsing
-    // So hunks are already filtered to staged files only
+  for (const group of result.groups) {
+    const filesInGroup: string[] = [];
 
-    aiSpinner.succeed(
-      `Analysis complete: ${
-        hunkAnalysisResult.groups?.length || 0
-      } groups created`
-    );
-  } catch (error) {
-    aiSpinner.fail(`OpenAI analysis error: ${getErrorMessage(error)}`);
-    return;
-  }
+    for (const hunk of group.hunks) {
+      // If this file hasn't been assigned yet, assign to this group
+      if (!fileToGroup.has(hunk.file)) {
+        fileToGroup.set(hunk.file, group.number);
+        filesInGroup.push(hunk.file);
+      }
+    }
 
-  if (!hunkAnalysisResult.groups || hunkAnalysisResult.groups.length === 0) {
-    console.log(chalk.yellow("⚠ Could not create groups.\n"));
-    return;
-  }
-
-  console.log(
-    chalk.green.bold(
-      `\n✓ ${hunkAnalysisResult.groups.length} commit groups created (smart splitting enabled)\n`
-    )
-  );
-  console.log(chalk.blue("📋 Commit Plan:\n"));
-
-  hunkAnalysisResult.groups.forEach((group: HunkCommitGroup) => {
-    console.log(chalk.cyan(`\nGroup ${group.number}: ${group.description}`));
-
-    const filesInGroup = Array.from(new Set(group.hunks.map((h) => h.file)));
-    const hunkCount = group.hunks.length;
-
-    console.log(
-      chalk.gray(
-        `Files: ${filesInGroup.join(", ")} (${hunkCount} change block${
-          hunkCount > 1 ? "s" : ""
-        })`
-      )
-    );
-    console.log(chalk.yellow(`Commit: ${group.commitMessage}`));
-    if (group.commitBody) {
-      group.commitBody.split("\n").forEach((line) => {
-        console.log(chalk.gray(`  ${line}`));
+    if (filesInGroup.length > 0) {
+      fileBasedGroups.push({
+        number: group.number,
+        description: group.description,
+        files: filesInGroup,
+        commitMessage: group.commitMessage,
+        commitBody: group.commitBody,
       });
     }
-  });
+  }
 
-  console.log("\n");
+  if (fileBasedGroups.length === 0) {
+    console.log(chalk.yellow("⚠ No valid commit groups\n"));
+    return;
+  }
 
-  // Single question with 3 options: Y (approve), n (reject), e (edit first)
-  const { action } = await inquirer.prompt<{ action: string }>([
+  // Show commit plan
+  console.log(chalk.blue("\n📋 Commit Plan:\n"));
+
+  for (const group of fileBasedGroups) {
+    console.log(chalk.cyan(`${group.number}. ${group.description}`));
+    for (const file of group.files) {
+      console.log(chalk.gray(`   ${file}`));
+    }
+    console.log(chalk.yellow(`   → ${group.commitMessage}`));
+    console.log();
+  }
+
+  // Get approval
+  const { approved } = await inquirer.prompt<{ approved: boolean }>([
     {
-      type: "input",
-      name: "action",
-      message: "Do you approve this commit plan? (Y/n/e=edit first)",
-      default: "Y",
-      validate: (input: string) => {
-        const normalized = input.toLowerCase().trim();
-        if (
-          normalized === "" ||
-          normalized === "y" ||
-          normalized === "n" ||
-          normalized === "e" ||
-          normalized === "edit"
-        ) {
-          return true;
-        }
-        return "Please enter Y (approve), n (cancel), or e (edit first)";
-      },
+      type: "confirm",
+      name: "approved",
+      message: "Proceed with commits?",
+      default: true,
     },
   ]);
 
-  const normalized = action.toLowerCase().trim();
-
-  // Handle cancel
-  if (normalized === "n" || normalized === "no") {
-    console.log(chalk.yellow("\n❌ Operation cancelled.\n"));
+  if (!approved) {
+    console.log(chalk.yellow("\n❌ Cancelled\n"));
     return;
   }
 
-  // Handle edit
-  if (normalized === "e" || normalized === "edit") {
-    let tempFile: string | null = null;
+  // Process commits
+  console.log(chalk.blue("\n📦 Creating commits...\n"));
+  const results = await processCommits(fileBasedGroups);
+
+  // Summary
+  const successful = results.filter((r) => r.success).length;
+  const failed = results.filter((r) => !r.success).length;
+
+  console.log(chalk.blue.bold("\n📊 Summary\n"));
+  console.log(chalk.green(`✓ ${successful} commit(s) created`));
+  if (failed > 0) {
+    console.log(chalk.red(`✗ ${failed} failed`));
+    results
+      .filter((r) => !r.success)
+      .forEach((r) => {
+        console.log(chalk.red(`  - Group ${r.group}: ${r.error}`));
+      });
+  }
+
+  console.log(chalk.yellow("\n⚠ Don't forget to push: git push\n"));
+}
+
+interface FileBasedGroup {
+  number: number;
+  description: string;
+  files: string[];
+  commitMessage: string;
+  commitBody?: string;
+}
+
+async function processCommits(groups: FileBasedGroup[]): Promise<CommitResult[]> {
+  const results: CommitResult[] = [];
+  const committedFiles = new Set<string>();
+
+  // First, unstage everything
+  await git.unstageAll();
+
+  for (const group of groups) {
+    // Filter to only files that haven't been committed yet
+    const filesToCommit = group.files.filter((f) => !committedFiles.has(f));
+
+    if (filesToCommit.length === 0) {
+      console.log(chalk.yellow(`⚠ Group ${group.number}: No files to commit, skipping`));
+      results.push({
+        group: group.number,
+        message: group.commitMessage,
+        hunks: [],
+        success: false,
+        error: "No valid files",
+      });
+      continue;
+    }
+
+    const commitSpinner = ora(`Group ${group.number}: ${group.commitMessage}`).start();
+
     try {
-      const groupsForEditing = hunkAnalysisResult.groups.map((g) => ({
-        number: g.number,
-        description: g.description,
-        files: Array.from(new Set(g.hunks.map((h) => h.file))),
-        commitMessage: g.commitMessage,
-        commitBody: g.commitBody,
-      }));
+      // Stage files for this group
+      await git.stageFiles(filesToCommit);
 
-      tempFile = editor.createTempFile("git-ai-commits");
-      commitFile.writeCommitFile(tempFile, groupsForEditing);
-
-      console.log(chalk.blue("\n✏️  Opening editor...\n"));
-      await editor.openEditor(tempFile);
-
-      const editedCommits = commitFile.parseCommitFile(tempFile);
-      const validation = commitFile.validateCommits(editedCommits);
-
-      if (!validation.valid) {
-        console.log(chalk.yellow("\n⚠️  Invalid commit messages:\n"));
-        validation.errors.forEach((err) =>
-          console.log(chalk.yellow(`  - ${err}`))
-        );
-        return;
+      // Verify files are staged
+      const staged = await git.getStagedFiles();
+      if (staged.length === 0) {
+        commitSpinner.fail(`Group ${group.number}: No files staged`);
+        results.push({
+          group: group.number,
+          message: group.commitMessage,
+          hunks: filesToCommit.map((f) => ({ file: f, hunkIndex: 0 })),
+          success: false,
+          error: "Failed to stage files",
+        });
+        continue;
       }
 
-      const mergedGroups = commitFile.mergeEditedCommits(
-        groupsForEditing,
-        editedCommits
-      );
+      // Create commit
+      const message = group.commitBody
+        ? `${group.commitMessage}\n\n${group.commitBody}`
+        : group.commitMessage;
 
-      const updatedGroups: HunkCommitGroup[] = [];
-      for (const hunkGroup of hunkAnalysisResult.groups) {
-        const merged = mergedGroups.find((g) => g.number === hunkGroup.number);
-        if (merged) {
-          updatedGroups.push({
-            ...hunkGroup,
-            commitMessage: merged.commitMessage,
-            commitBody: merged.commitBody,
-          });
-        }
-      }
+      await git.createCommit(message);
 
-      hunkAnalysisResult.groups = updatedGroups;
+      // Mark files as committed
+      filesToCommit.forEach((f) => committedFiles.add(f));
 
-      if (hunkAnalysisResult.groups.length === 0) {
-        console.log(
-          chalk.yellow("\n⚠️  No commits remaining after editing.\n")
-        );
-        return;
-      }
+      commitSpinner.succeed(`Group ${group.number}: ${group.commitMessage}`);
+      console.log(chalk.gray(`   Files: ${filesToCommit.join(", ")}`));
 
-      console.log(
-        chalk.green(
-          `\n✓ Commit messages updated. ${hunkAnalysisResult.groups.length} commit(s) ready.\n`
-        )
-      );
+      results.push({
+        group: group.number,
+        message: group.commitMessage,
+        hunks: filesToCommit.map((f) => ({ file: f, hunkIndex: 0 })),
+        success: true,
+      });
     } catch (error) {
-      console.log(chalk.red(`\n❌ Editor error: ${getErrorMessage(error)}\n`));
-      console.log(
-        chalk.yellow("Proceeding with original commit messages...\n")
-      );
-    } finally {
-      if (tempFile) {
-        editor.cleanupTempFile(tempFile);
+      commitSpinner.fail(`Group ${group.number}: ${getErrorMessage(error)}`);
+      results.push({
+        group: group.number,
+        message: group.commitMessage,
+        hunks: filesToCommit.map((f) => ({ file: f, hunkIndex: 0 })),
+        success: false,
+        error: getErrorMessage(error),
+      });
+
+      // Try to unstage for next group
+      try {
+        await git.unstageAll();
+      } catch {
+        // Ignore
       }
     }
   }
 
-  const commitResults = await hunkCommitProcessor.processAllHunkCommitGroups(
-    hunkAnalysisResult.groups,
-    fileHunks,
-    selectedUser
-  );
-
-  console.log(chalk.blue.bold("\n📊 Summary Report\n"));
-  console.log(
-    chalk.cyan(
-      `Total commits: ${commitResults.filter((r) => r.success).length}`
-    )
-  );
-  console.log(
-    chalk.cyan(`Successful: ${commitResults.filter((r) => r.success).length}`)
-  );
-  console.log(
-    chalk.cyan(`Failed: ${commitResults.filter((r) => !r.success).length}\n`)
-  );
-
-  if (commitResults.length > 0) {
-    console.log(chalk.blue("Commit Details:\n"));
-    commitResults.forEach((result) => {
-      if (result.success) {
-        console.log(
-          chalk.green(`  ✓ ${result.message} - ${result.files.length} files`)
-        );
-      } else {
-        console.log(
-          chalk.red(`  ❌ ${result.message} - Error: ${result.error}`)
-        );
-      }
-    });
-  }
-
-  console.log(
-    chalk.yellow("\n⚠ Note: Commits were not pushed. You can push manually.\n")
-  );
-  console.log(
-    chalk.blue("Example: git push origin $(git symbolic-ref --short HEAD)\n")
-  );
+  return results;
 }
