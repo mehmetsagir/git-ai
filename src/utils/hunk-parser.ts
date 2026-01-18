@@ -7,8 +7,8 @@ export interface Hunk {
   file: string;
   index: number;
   header: string;
-  content: string;  // Full hunk content including header
-  summary: string;  // Brief description for AI
+  content: string;
+  summary: string;
 }
 
 export interface FileDiff {
@@ -17,50 +17,36 @@ export interface FileDiff {
   isDeleted: boolean;
   isBinary: boolean;
   hunks: Hunk[];
-  fullDiff: string;  // Complete diff for this file
 }
 
-/**
- * Check if a file path is valid (not garbage from diff content)
- */
 function isValidFilePath(path: string): boolean {
   if (!path || path.length === 0) return false;
-  if (path.length > 500) return false;  // Too long
-  if (path.includes('\n')) return false;  // Contains newline
-  if (path.includes('${')) return false;  // Template literal
-  if (path.includes('`')) return false;  // Backtick
+  if (path.length > 500) return false;
+  if (path.includes('\n')) return false;
+  if (path.includes('${')) return false;
+  if (path.includes('`')) return false;
   if (path.startsWith(' ') || path.endsWith(' ')) return false;
-  // Check for obviously invalid patterns
   if (/[<>"|?*]/.test(path)) return false;
   return true;
 }
 
-/**
- * Parse git diff output into structured format
- */
 export function parseDiff(diffOutput: string): FileDiff[] {
   const files: FileDiff[] = [];
 
-  // Split by file - only at line starts to avoid matching content inside diff
-  // Prepend newline to handle first file, then split
   const fileParts = ('\n' + diffOutput).split(/\n(?=diff --git a\/)/);
 
   for (const part of fileParts) {
     if (!part.trim()) continue;
 
-    // Extract file name - must be at start of part
     const fileMatch = part.match(/^diff --git a\/(.+) b\/(.+)$/m);
     if (!fileMatch) continue;
 
-    // Use the b/ path (destination), handle renamed files
     const file = fileMatch[2].trim();
 
-    // Validate file path
     if (!isValidFilePath(file)) {
-      continue;  // Skip invalid entries
+      continue;
     }
 
-    // Check flags in the header section only (before first @@)
     const headerEnd = part.indexOf('@@');
     const header = headerEnd > 0 ? part.substring(0, headerEnd) : part;
 
@@ -71,7 +57,6 @@ export function parseDiff(diffOutput: string): FileDiff[] {
     const hunks: Hunk[] = [];
 
     if (!isBinary) {
-      // Parse hunks
       const hunkRegex = /@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@([^\n]*)/g;
       let match;
       let hunkIndex = 0;
@@ -90,11 +75,9 @@ export function parseDiff(diffOutput: string): FileDiff[] {
         const current = matches[i];
         const nextStart = i < matches.length - 1 ? matches[i + 1].start : part.length;
 
-        // Extract hunk content
         const hunkContent = part.substring(current.start, nextStart).trim();
 
-        // Create summary for AI
-        const lines = hunkContent.split('\n').slice(1); // Skip header
+        const lines = hunkContent.split('\n').slice(1);
         const additions = lines.filter(l => l.startsWith('+')).length;
         const deletions = lines.filter(l => l.startsWith('-')).length;
 
@@ -119,13 +102,12 @@ export function parseDiff(diffOutput: string): FileDiff[] {
       }
     }
 
-    // For binary or files without hunks, create a single "hunk"
     if (hunks.length === 0) {
       hunks.push({
         file,
         index: 0,
         header: isBinary ? '[Binary]' : '[File]',
-        content: part,
+        content: '',
         summary: isBinary
           ? 'Binary file'
           : isNew
@@ -141,17 +123,13 @@ export function parseDiff(diffOutput: string): FileDiff[] {
       isNew,
       isDeleted,
       isBinary,
-      hunks,
-      fullDiff: part
+      hunks
     });
   }
 
   return files;
 }
 
-/**
- * Format hunks for AI analysis
- */
 export function formatForAI(files: FileDiff[]): string {
   let output = '';
 
@@ -167,7 +145,7 @@ export function formatForAI(files: FileDiff[]): string {
       if (hunk.summary) {
         output += `Summary: ${hunk.summary}\n`;
       }
-      if (!file.isBinary) {
+      if (!file.isBinary && hunk.content) {
         output += hunk.content + '\n';
       }
     }
@@ -177,9 +155,6 @@ export function formatForAI(files: FileDiff[]): string {
   return output;
 }
 
-/**
- * Get diff statistics
- */
 export function getStats(files: FileDiff[]): string {
   const totalFiles = files.length;
   const totalHunks = files.reduce((sum, f) => sum + f.hunks.length, 0);
@@ -199,29 +174,4 @@ export function getStats(files: FileDiff[]): string {
   }
 
   return stats;
-}
-
-/**
- * Create a patch string for specific hunks
- */
-export function createPatch(file: FileDiff, hunkIndices: number[]): string {
-  if (file.isBinary) {
-    return file.fullDiff;
-  }
-
-  // Get file header (everything before first hunk)
-  const firstHunkPos = file.fullDiff.indexOf('@@');
-  if (firstHunkPos === -1) {
-    return file.fullDiff;
-  }
-
-  const header = file.fullDiff.substring(0, firstHunkPos);
-
-  // Get selected hunks
-  const selectedHunks = file.hunks
-    .filter(h => hunkIndices.includes(h.index))
-    .map(h => h.content)
-    .join('\n');
-
-  return header + selectedHunks + '\n';
 }
