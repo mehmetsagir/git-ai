@@ -1,199 +1,227 @@
 /**
- * Git diff hunk parser for smart commit splitting
- * Parses git diff output into structured hunks for semantic grouping
+ * Parse git diff into hunks for analysis
+ * This module ONLY parses - it does NOT modify any files
  */
 
-export interface DiffHunk {
+export interface Hunk {
   file: string;
-  oldStart: number; // Starting line in old file
-  oldLines: number; // Number of lines in old file
-  newStart: number; // Starting line in new file
-  newLines: number; // Number of lines in new file
-  header: string; // @@ -10,5 +10,8 @@ function name
-  lines: string[]; // Actual diff lines (+/-/ )
-  context?: string; // Function/class name if available
+  index: number;
+  header: string;
+  content: string;  // Full hunk content including header
+  summary: string;  // Brief description for AI
 }
 
-export interface FileHunks {
+export interface FileDiff {
   file: string;
-  hunks: DiffHunk[];
+  isNew: boolean;
+  isDeleted: boolean;
+  isBinary: boolean;
+  hunks: Hunk[];
+  fullDiff: string;  // Complete diff for this file
 }
 
 /**
- * Parse git diff output into structured hunks
+ * Check if a file path is valid (not garbage from diff content)
  */
-export function parseDiffIntoHunks(diffOutput: string): FileHunks[] {
-  const fileHunksMap = new Map<string, DiffHunk[]>();
-  const lines = diffOutput.split("\n");
-
-  let currentFile: string | null = null;
-  let currentHunk: DiffHunk | null = null;
-  let hunkLines: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Detect file header: diff --git a/file b/file
-    if (line.startsWith("diff --git ")) {
-      // Save previous hunk if exists
-      if (currentHunk && currentFile) {
-        currentHunk.lines = hunkLines;
-        const hunks = fileHunksMap.get(currentFile) || [];
-        hunks.push(currentHunk);
-        fileHunksMap.set(currentFile, hunks);
-      }
-
-      currentHunk = null;
-      hunkLines = [];
-      continue;
-    }
-
-    // Detect file path: +++ b/src/file.ts
-    if (line.startsWith("+++ b/")) {
-      currentFile = line.substring(6); // Remove "+++ b/"
-      continue;
-    }
-
-    // Detect hunk header: @@ -10,5 +10,8 @@ function name
-    if (line.startsWith("@@")) {
-      // Save previous hunk if exists
-      if (currentHunk && currentFile) {
-        currentHunk.lines = hunkLines;
-        const hunks = fileHunksMap.get(currentFile) || [];
-        hunks.push(currentHunk);
-        fileHunksMap.set(currentFile, hunks);
-      }
-
-      // Parse hunk header
-      const hunk = parseHunkHeader(line, currentFile || "");
-      currentHunk = hunk;
-      hunkLines = [];
-      continue;
-    }
-
-    // Collect hunk lines (starts with +, -, or space)
-    if (
-      currentHunk &&
-      (line.startsWith("+") || line.startsWith("-") || line.startsWith(" "))
-    ) {
-      hunkLines.push(line);
-    }
-  }
-
-  // Save last hunk
-  if (currentHunk && currentFile) {
-    currentHunk.lines = hunkLines;
-    const hunks = fileHunksMap.get(currentFile) || [];
-    hunks.push(currentHunk);
-    fileHunksMap.set(currentFile, hunks);
-  }
-
-  // Convert map to array
-  const result: FileHunks[] = [];
-  fileHunksMap.forEach((hunks, file) => {
-    result.push({ file, hunks });
-  });
-
-  return result;
+function isValidFilePath(path: string): boolean {
+  if (!path || path.length === 0) return false;
+  if (path.length > 500) return false;  // Too long
+  if (path.includes('\n')) return false;  // Contains newline
+  if (path.includes('${')) return false;  // Template literal
+  if (path.includes('`')) return false;  // Backtick
+  if (path.startsWith(' ') || path.endsWith(' ')) return false;
+  // Check for obviously invalid patterns
+  if (/[<>"|?*]/.test(path)) return false;
+  return true;
 }
 
 /**
- * Parse hunk header line
- * Format: @@ -10,5 +10,8 @@ optional context
+ * Parse git diff output into structured format
  */
-function parseHunkHeader(headerLine: string, file: string): DiffHunk {
-  const match = headerLine.match(/@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@(.*)$/);
+export function parseDiff(diffOutput: string): FileDiff[] {
+  const files: FileDiff[] = [];
 
-  if (!match) {
-    return {
+  // Split by file - only at line starts to avoid matching content inside diff
+  // Prepend newline to handle first file, then split
+  const fileParts = ('\n' + diffOutput).split(/\n(?=diff --git a\/)/);
+
+  for (const part of fileParts) {
+    if (!part.trim()) continue;
+
+    // Extract file name - must be at start of part
+    const fileMatch = part.match(/^diff --git a\/(.+) b\/(.+)$/m);
+    if (!fileMatch) continue;
+
+    // Use the b/ path (destination), handle renamed files
+    const file = fileMatch[2].trim();
+
+    // Validate file path
+    if (!isValidFilePath(file)) {
+      continue;  // Skip invalid entries
+    }
+
+    // Check flags in the header section only (before first @@)
+    const headerEnd = part.indexOf('@@');
+    const header = headerEnd > 0 ? part.substring(0, headerEnd) : part;
+
+    const isNew = header.includes('new file mode') || header.includes('--- /dev/null');
+    const isDeleted = header.includes('deleted file mode') || header.includes('+++ /dev/null');
+    const isBinary = header.includes('Binary file') || header.includes('GIT binary patch');
+
+    const hunks: Hunk[] = [];
+
+    if (!isBinary) {
+      // Parse hunks
+      const hunkRegex = /@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@([^\n]*)/g;
+      let match;
+      let hunkIndex = 0;
+
+      const matches: { start: number; header: string; context: string }[] = [];
+
+      while ((match = hunkRegex.exec(part)) !== null) {
+        matches.push({
+          start: match.index,
+          header: match[0],
+          context: match[5]?.trim() || ''
+        });
+      }
+
+      for (let i = 0; i < matches.length; i++) {
+        const current = matches[i];
+        const nextStart = i < matches.length - 1 ? matches[i + 1].start : part.length;
+
+        // Extract hunk content
+        const hunkContent = part.substring(current.start, nextStart).trim();
+
+        // Create summary for AI
+        const lines = hunkContent.split('\n').slice(1); // Skip header
+        const additions = lines.filter(l => l.startsWith('+')).length;
+        const deletions = lines.filter(l => l.startsWith('-')).length;
+
+        let summary = '';
+        if (current.context) {
+          summary = current.context;
+        } else if (additions > 0 && deletions > 0) {
+          summary = `Modified ${additions} lines, removed ${deletions} lines`;
+        } else if (additions > 0) {
+          summary = `Added ${additions} lines`;
+        } else if (deletions > 0) {
+          summary = `Removed ${deletions} lines`;
+        }
+
+        hunks.push({
+          file,
+          index: hunkIndex++,
+          header: current.header,
+          content: hunkContent,
+          summary
+        });
+      }
+    }
+
+    // For binary or files without hunks, create a single "hunk"
+    if (hunks.length === 0) {
+      hunks.push({
+        file,
+        index: 0,
+        header: isBinary ? '[Binary]' : '[File]',
+        content: part,
+        summary: isBinary
+          ? 'Binary file'
+          : isNew
+            ? 'New file'
+            : isDeleted
+              ? 'Deleted file'
+              : 'File change'
+      });
+    }
+
+    files.push({
       file,
-      oldStart: 0,
-      oldLines: 0,
-      newStart: 0,
-      newLines: 0,
-      header: headerLine,
-      lines: [],
-    };
+      isNew,
+      isDeleted,
+      isBinary,
+      hunks,
+      fullDiff: part
+    });
   }
 
-  const oldStart = parseInt(match[1], 10);
-  const oldLines = match[2] ? parseInt(match[2], 10) : 1;
-  const newStart = parseInt(match[3], 10);
-  const newLines = match[4] ? parseInt(match[4], 10) : 1;
-  const context = match[5]?.trim() || undefined;
-
-  return {
-    file,
-    oldStart,
-    oldLines,
-    newStart,
-    newLines,
-    header: headerLine,
-    context,
-    lines: [],
-  };
+  return files;
 }
 
 /**
  * Format hunks for AI analysis
- * Creates a readable representation of hunks with metadata
  */
-export function formatHunksForAI(fileHunks: FileHunks[]): string {
-  let output = "";
+export function formatForAI(files: FileDiff[]): string {
+  let output = '';
 
-  fileHunks.forEach((fh) => {
-    output += `\n=== FILE: ${fh.file} ===\n`;
-    output += `Total hunks: ${fh.hunks.length}\n\n`;
+  for (const file of files) {
+    output += `\n### FILE: ${file.file}`;
+    if (file.isNew) output += ' [NEW]';
+    if (file.isDeleted) output += ' [DELETED]';
+    if (file.isBinary) output += ' [BINARY]';
+    output += '\n';
 
-    fh.hunks.forEach((hunk, idx) => {
-      output += `--- Hunk ${idx + 1} ---\n`;
-      if (hunk.context) {
-        output += `Context: ${hunk.context}\n`;
+    for (const hunk of file.hunks) {
+      output += `\n--- Hunk ${hunk.index} ---\n`;
+      if (hunk.summary) {
+        output += `Summary: ${hunk.summary}\n`;
       }
-      output += `Lines: ${hunk.oldStart}-${hunk.oldStart + hunk.oldLines - 1} → ${hunk.newStart}-${hunk.newStart + hunk.newLines - 1}\n`;
-      output += hunk.header + "\n";
-      output += hunk.lines.join("\n") + "\n\n";
-    });
-  });
+      if (!file.isBinary) {
+        output += hunk.content + '\n';
+      }
+    }
+    output += '\n';
+  }
 
   return output;
 }
 
 /**
- * Create a unified diff string from specific hunks
- * Used for applying partial changes
+ * Get diff statistics
  */
-export function createPatchFromHunks(hunks: DiffHunk[]): string {
-  if (hunks.length === 0) return "";
+export function getStats(files: FileDiff[]): string {
+  const totalFiles = files.length;
+  const totalHunks = files.reduce((sum, f) => sum + f.hunks.length, 0);
+  const newFiles = files.filter(f => f.isNew).length;
+  const deletedFiles = files.filter(f => f.isDeleted).length;
+  const binaryFiles = files.filter(f => f.isBinary).length;
 
-  const fileGroups = new Map<string, DiffHunk[]>();
-  hunks.forEach((hunk) => {
-    const group = fileGroups.get(hunk.file) || [];
-    group.push(hunk);
-    fileGroups.set(hunk.file, group);
-  });
+  let stats = `${totalFiles} file(s), ${totalHunks} change(s)`;
 
-  let patch = "";
+  const details: string[] = [];
+  if (newFiles > 0) details.push(`${newFiles} new`);
+  if (deletedFiles > 0) details.push(`${deletedFiles} deleted`);
+  if (binaryFiles > 0) details.push(`${binaryFiles} binary`);
 
-  fileGroups.forEach((fileHunks, file) => {
-    patch += `diff --git a/${file} b/${file}\n`;
-    patch += `--- a/${file}\n`;
-    patch += `+++ b/${file}\n`;
+  if (details.length > 0) {
+    stats += ` (${details.join(', ')})`;
+  }
 
-    fileHunks.forEach((hunk) => {
-      patch += hunk.header + "\n";
-      patch += hunk.lines.join("\n") + "\n";
-    });
-  });
-
-  return patch;
+  return stats;
 }
 
 /**
- * Get summary of hunks for display
+ * Create a patch string for specific hunks
  */
-export function getHunksSummary(fileHunks: FileHunks[]): string {
-  const totalFiles = fileHunks.length;
-  const totalHunks = fileHunks.reduce((sum, fh) => sum + fh.hunks.length, 0);
-  return `${totalFiles} file(s), ${totalHunks} change block(s)`;
+export function createPatch(file: FileDiff, hunkIndices: number[]): string {
+  if (file.isBinary) {
+    return file.fullDiff;
+  }
+
+  // Get file header (everything before first hunk)
+  const firstHunkPos = file.fullDiff.indexOf('@@');
+  if (firstHunkPos === -1) {
+    return file.fullDiff;
+  }
+
+  const header = file.fullDiff.substring(0, firstHunkPos);
+
+  // Get selected hunks
+  const selectedHunks = file.hunks
+    .filter(h => hunkIndices.includes(h.index))
+    .map(h => h.content)
+    .join('\n');
+
+  return header + selectedHunks + '\n';
 }
