@@ -1,0 +1,8 @@
+# Ignore built files
+dist/
+node_modules/
+
+# Temporarily ignore src files to prevent corruption during commits
+# Remove these lines once the auto-format issue is resolved
+src/**/*.ts
+src/**/*.js
