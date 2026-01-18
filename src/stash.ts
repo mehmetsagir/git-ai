@@ -12,13 +12,23 @@ interface StashData {
   files: Map<number, string[]>;
 }
 
+function safeJsonEmbed(obj: unknown): string {
+  return JSON.stringify(obj)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+}
+
 function getHtml(data: StashData): string {
-  const stashesJson = JSON.stringify(data.stashes);
   const diffsJson: Record<number, string> = {};
   const filesJson: Record<number, string[]> = {};
 
   data.diffs.forEach((v, k) => { diffsJson[k] = v; });
   data.files.forEach((v, k) => { filesJson[k] = v; });
+
+  const stashesJsonSafe = safeJsonEmbed(data.stashes);
+  const diffsJsonSafe = safeJsonEmbed(diffsJson);
+  const filesJsonSafe = safeJsonEmbed(filesJson);
 
   return `<!DOCTYPE html>
 <html>
@@ -57,30 +67,33 @@ function getHtml(data: StashData): string {
       align-items: center;
       gap: 8px;
     }
-    .back-btn {
+    .header-nav {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 12px;
+      width: 100%;
+    }
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
       background: none;
       border: none;
       color: #58a6ff;
       cursor: pointer;
-      font-size: 12px;
-      padding: 4px 8px;
-      border-radius: 4px;
-      transition: background 0.1s;
+      font-size: 13px;
+      padding: 0;
+      transition: opacity 0.15s;
     }
-    .back-btn:hover { background: #3c3c3c; }
+    .back-btn:hover { opacity: 0.8; }
     .back-btn svg {
-      width: 14px;
-      height: 14px;
+      width: 16px;
+      height: 16px;
     }
     .stash-title {
       color: #4ec9b0;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 500;
-      text-transform: none;
-      letter-spacing: normal;
     }
     .sidebar-footer {
       padding: 14px 16px;
@@ -156,14 +169,14 @@ function getHtml(data: StashData): string {
     }
     .toast {
       position: fixed;
-      bottom: 20px;
+      top: 20px;
       right: 20px;
       padding: 12px 20px;
       border-radius: 6px;
       font-size: 13px;
       color: #fff;
       opacity: 0;
-      transform: translateY(10px);
+      transform: translateY(-10px);
       transition: opacity 0.2s, transform 0.2s;
       z-index: 1000;
     }
@@ -173,6 +186,36 @@ function getHtml(data: StashData): string {
     }
     .toast.success { background: #238636; }
     .toast.error { background: #da3633; }
+    .loader-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s, visibility 0.2s;
+    }
+    .loader-overlay.show {
+      opacity: 1;
+      visibility: visible;
+    }
+    .loader {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #3c3c3c;
+      border-top-color: #58a6ff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
     .sidebar-content {
       flex: 1;
       overflow-y: auto;
@@ -382,11 +425,14 @@ function getHtml(data: StashData): string {
     </div>
   </div>
   <div class="toast" id="toast"></div>
+  <div class="loader-overlay" id="loader">
+    <div class="loader"></div>
+  </div>
 
   <script>
-    let stashes = ${stashesJson};
-    let diffs = ${JSON.stringify(diffsJson)};
-    let files = ${JSON.stringify(filesJson)};
+    let stashes = ${stashesJsonSafe};
+    let diffs = ${diffsJsonSafe};
+    let files = ${filesJsonSafe};
     let isLoading = false;
 
     let currentView = 'list'; // 'list' or 'detail'
@@ -446,13 +492,15 @@ function getHtml(data: StashData): string {
 
       // Update header with back button
       document.getElementById('sidebarHeader').innerHTML = \`
-        <button class="back-btn" onclick="renderStashList()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M15 18l-6-6 6-6"/>
-          </svg>
-          Back
-        </button>
-        <span class="stash-title">stash@{\${index}}</span>
+        <div class="header-nav">
+          <button class="back-btn" onclick="renderStashList()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M15 18l-6-6 6-6"/>
+            </svg>
+            Back
+          </button>
+          <span class="stash-title">stash@{\${index}}</span>
+        </div>
       \`;
 
       // Render file list with action buttons
@@ -617,6 +665,14 @@ function getHtml(data: StashData): string {
       setTimeout(() => { toast.classList.remove('show'); }, 3000);
     }
 
+    function showLoader() {
+      document.getElementById('loader').classList.add('show');
+    }
+
+    function hideLoader() {
+      document.getElementById('loader').classList.remove('show');
+    }
+
     async function refreshData() {
       const res = await fetch('/api/data');
       const data = await res.json();
@@ -628,6 +684,7 @@ function getHtml(data: StashData): string {
     async function applyStash(index) {
       if (isLoading) return;
       isLoading = true;
+      showLoader();
 
       try {
         const res = await fetch('/api/apply/' + index, { method: 'POST' });
@@ -644,6 +701,7 @@ function getHtml(data: StashData): string {
         showToast('Failed to apply stash', 'error');
       }
 
+      hideLoader();
       isLoading = false;
     }
 
@@ -652,6 +710,7 @@ function getHtml(data: StashData): string {
       if (!confirm('Are you sure you want to delete this stash? This cannot be undone.')) return;
 
       isLoading = true;
+      showLoader();
 
       try {
         const res = await fetch('/api/drop/' + index, { method: 'POST' });
@@ -668,6 +727,7 @@ function getHtml(data: StashData): string {
         showToast('Failed to delete stash', 'error');
       }
 
+      hideLoader();
       isLoading = false;
     }
 
