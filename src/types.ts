@@ -1,70 +1,32 @@
-export interface GitUserProfile {
-  id: string;
-  name: string;
-  email: string;
-  scope: "global" | "local" | "manual" | "current";
-  label: string;
-  shortcut?: string | null;
+export interface FileInfo {
+  file: string;
+  status: "new" | "modified" | "deleted" | "renamed";
+  isBinary: boolean;
 }
 
-export interface Config {
-  openaiKey?: string;
-  gitUsers?: GitUserProfile[];
-  defaultGitUser?: string | null;
-  editor?: string | null;
+// Hunk identifier for grouping
+export interface HunkRef {
+  file: string;
+  hunkIndex: number;
 }
 
-export interface DiffData {
-  staged: string;
-  unstaged: string;
-  all: string;
-}
-
+// Commit group with hunk-level granularity
 export interface CommitGroup {
   number: number;
   description: string;
-  files: string[];
-  commitMessage: string;
-  commitBody?: string;
-}
-
-/**
- * Hunk-based commit group for smart commit splitting
- * Allows splitting changes within a single file into multiple commits
- */
-export interface HunkIdentifier {
-  file: string;
-  hunkIndex: number; // Index of hunk within file's hunks array
-}
-
-export interface HunkCommitGroup {
-  number: number;
-  description: string;
-  hunks: HunkIdentifier[]; // References to specific hunks
+  hunks: HunkRef[];  // Which hunks to include
   commitMessage: string;
   commitBody?: string;
 }
 
 export interface AnalysisResult {
   groups: CommitGroup[];
-  summary?: string;
-}
-
-export interface HunkAnalysisResult {
-  groups: HunkCommitGroup[];
-  summary?: string;
 }
 
 export interface CommitResult {
-  number: number;
-  description: string;
-  files: string[];
+  group: number;
   message: string;
+  hunks: HunkRef[];
   success: boolean;
   error?: string;
-}
-
-export interface GitUserInfo {
-  name: string | null;
-  email: string | null;
 }
