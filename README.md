@@ -4,10 +4,10 @@ AI-powered git commit tool. Analyzes changes, groups them logically, and creates
 
 ## Features
 
-- **Smart Commit Splitting**: Groups changes by feature, not by file
-- **Hunk-Level Analysis**: One file can be split into multiple commits
-- **Conventional Commits**: Uses standard commit message format
-- **Safe**: Commits are not pushed automatically
+- **Smart Grouping**: Groups related files together by feature
+- **Conventional Commits**: Uses standard commit message format (feat, fix, refactor, etc.)
+- **All Changes Included**: Handles tracked, untracked, new, and deleted files
+- **Safe**: Shows commit plan for approval before committing
 
 ## Installation
 
@@ -30,8 +30,8 @@ git-ai commit
 ```
 
 The tool will:
-1. Analyze all changes (staged or unstaged)
-2. Group related changes by feature
+1. Analyze all changes (staged, unstaged, and untracked)
+2. Group related files by feature
 3. Show commit plan for approval
 4. Create commits
 
@@ -40,24 +40,34 @@ The tool will:
 ```
 🤖 Git AI
 
-📝 3 unstaged file(s)
+✓ Found 5 file(s), 8 change(s)
 
-✓ Parsed: 2 file(s), 4 change block(s)
-✓ Created 2 commit groups
+Changes:
+  + src/new-feature.ts
+  ~ src/auth.ts
+  ~ src/config.ts
+  - src/old-file.ts
+
+✓ Created 3 commit group(s)
 
 📋 Commit Plan:
 
-Group 1: Login feature
-  Files: src/auth.ts, src/auth.test.ts
-  Commit: feat(auth): add login functionality
+1. Add authentication feature
+   src/auth.ts
+   src/new-feature.ts
+   → feat(auth): add login functionality
 
-Group 2: Logger configuration
-  Files: src/auth.ts, src/logger.ts
-  Commit: feat(logging): add info logging
+2. Update configuration
+   src/config.ts
+   → refactor(config): simplify config handling
+
+3. Remove deprecated code
+   src/old-file.ts
+   → chore: remove unused files
 
 ? Proceed with commits? Yes
 
-✓ 2 commit(s) created
+✓ 3 commit(s) created
 
 ⚠ Don't forget to push: git push
 ```
@@ -85,6 +95,35 @@ Config file: `~/.git-ai/config.json`
 - Node.js >= 14.0.0
 - OpenAI API key
 - Git repository
+
+## Changelog
+
+### v0.0.14
+**Major Refactor - Stability Release**
+
+**Added:**
+- Catch-all group for files missed by AI grouping
+- Support for untracked (new) files in commit analysis
+- Robust diff parser with file path validation
+
+**Changed:**
+- Simplified to file-based grouping (more reliable than hunk-based)
+- Improved error handling throughout
+
+**Removed:**
+- User management features (add, list, remove users)
+- Editor-based commit message editing
+- Update notifier
+- Hunk-level commit splitting (caused file corruption issues)
+- Summary command
+
+**Fixed:**
+- Parser no longer misinterprets diff content as file names
+- All changed files now included in commits (no orphaned files)
+- No more "corrupt patch" errors
+
+### v0.0.13 and earlier
+- Initial releases with experimental hunk-based commit splitting
 
 ## License
 
