@@ -103,3 +103,86 @@ export async function getFullDiff(): Promise<string> {
 
   return diff;
 }
+
+export interface StashEntry {
+  index: number;
+  hash: string;
+  message: string;
+  date: string;
+  branch: string;
+}
+
+export async function getStashList(): Promise<StashEntry[]> {
+  try {
+    // Use git.raw for better compatibility
+    const result = await git.raw(["stash", "list", "--format=%H|%s|%ci"]);
+    if (!result || !result.trim()) return [];
+
+    const lines = result.trim().split("\n");
+    return lines.map((line, index) => {
+      const [hash, message, date] = line.split("|");
+      const branchMatch = message?.match(/^WIP on (.+?):|^On (.+?):/);
+      const branch = branchMatch ? (branchMatch[1] || branchMatch[2]) : "unknown";
+
+      return {
+        index,
+        hash: hash || "",
+        message: message || "",
+        date: date || "",
+        branch
+      };
+    });
+  } catch (err) {
+    // Fallback: try without format
+    try {
+      const result = await git.raw(["stash", "list"]);
+      if (!result || !result.trim()) return [];
+
+      const lines = result.trim().split("\n");
+      return lines.map((line, index) => {
+        // Format: stash@{0}: WIP on branch: message
+        const match = line.match(/^stash@\{\d+\}:\s*(.+)$/);
+        const message = match ? match[1] : line;
+        const branchMatch = message.match(/^WIP on (.+?):|^On (.+?):/);
+        const branch = branchMatch ? (branchMatch[1] || branchMatch[2]) : "unknown";
+
+        return {
+          index,
+          hash: "",
+          message,
+          date: "",
+          branch
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+}
+
+export async function getStashDiff(index: number): Promise<string> {
+  try {
+    const result = await git.raw(["stash", "show", "-p", `stash@{${index}}`]);
+    return result || "";
+  } catch {
+    return "";
+  }
+}
+
+export async function getStashFiles(index: number): Promise<string[]> {
+  try {
+    const result = await git.raw(["stash", "show", "--name-only", `stash@{${index}}`]);
+    if (!result) return [];
+    return result.trim().split("\n").filter(f => f.trim());
+  } catch {
+    return [];
+  }
+}
+
+export async function applyStash(index: number): Promise<void> {
+  await git.raw(["stash", "apply", `stash@{${index}}`]);
+}
+
+export async function dropStash(index: number): Promise<void> {
+  await git.raw(["stash", "drop", `stash@{${index}}`]);
+}
