@@ -5,6 +5,7 @@ import chalk from "chalk";
 import * as setup from "./setup";
 import * as commit from "./commit";
 import * as reset from "./reset";
+import * as stash from "./stash";
 import { getErrorMessage } from "./utils/errors";
 
 const program = new Command();
@@ -47,6 +48,17 @@ program
   .action(async () => {
     try {
       await reset.resetConfig();
+    } catch (error) {
+      handleError(error);
+    }
+  });
+
+program
+  .command("stash")
+  .description("View git stashes in browser")
+  .action(async () => {
+    try {
+      await stash.runStashViewer();
     } catch (error) {
       handleError(error);
     }
