@@ -1,6 +1,6 @@
 {
   "name": "@mehmetsagir/git-ai",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "AI-powered git commit tool that analyzes diffs and creates conventional commit messages",
   "main": "dist/index.js",
   "bin": {
@@ -12,10 +12,7 @@
   },
   "files": [
     "dist",
-    "bin",
-    "README.md",
-    "package.json",
-    "package-lock.json"
+    "bin"
   ],
   "keywords": [
     "git",
@@ -45,7 +42,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/mehmetsagir/git-ai.git"
+    "url": "git+https://github.com/mehmetsagir/git-ai.git"
   },
-  "readme": "README.md"
+  "bugs": {
+    "url": "https://github.com/mehmetsagir/git-ai/issues"
+  },
+  "homepage": "https://github.com/mehmetsagir/git-ai#readme"
 }
