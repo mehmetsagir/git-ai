@@ -8,6 +8,7 @@ AI-powered git commit tool. Analyzes changes, groups them logically, and creates
 - **Conventional Commits**: Uses standard commit message format (feat, fix, refactor, etc.)
 - **All Changes Included**: Handles tracked, untracked, new, and deleted files
 - **Safe**: Shows commit plan for approval before committing
+- **Stash Viewer**: Browse git stashes in a web UI with syntax highlighting
 
 ## Installation
 
@@ -78,7 +79,19 @@ Changes:
 |---------|-------------|
 | `git-ai setup` | Configure OpenAI API key |
 | `git-ai commit` | Analyze and create commits |
+| `git-ai stash` | View git stashes in browser |
 | `git-ai reset` | Reset configuration |
+
+### Stash Viewer
+
+```bash
+git-ai stash
+```
+
+Opens a browser with a visual interface to view all your git stashes:
+- See all stashes with branch, message, and date
+- Click to expand and view the full diff
+- Syntax highlighting for code changes
 
 ## Configuration
 
@@ -97,6 +110,22 @@ Config file: `~/.git-ai/config.json`
 - Git repository
 
 ## Changelog
+
+### v0.0.16
+**Stash Viewer**
+
+- New `git-ai stash` command
+- Browse stashes in a web UI
+- View diffs with syntax highlighting
+- Click to expand/collapse each stash
+
+### v0.0.15
+**Code Cleanup**
+
+- Removed 7 unused functions from git.ts (54% smaller)
+- Removed unused `createPatch` from hunk-parser.ts
+- Cleaned up package.json metadata
+- Added `bugs` and `homepage` fields
 
 ### v0.0.14
 **Major Refactor - Stability Release**
