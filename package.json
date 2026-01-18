@@ -33,8 +33,7 @@
     "inquirer": "^8.2.6",
     "openai": "^4.20.1",
     "ora": "^5.4.1",
-    "simple-git": "^3.20.0",
-    "update-notifier": "^7.0.0"
+    "simple-git": "^3.20.0"
   },
   "devDependencies": {
     "@types/inquirer": "^8.2.10",
