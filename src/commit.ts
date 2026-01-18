@@ -30,6 +30,10 @@ export async function runCommit(): Promise<void> {
     return;
   }
 
+  // Get ALL changed files from git status (including untracked)
+  const allChangedFiles = await git.getChangedFiles();
+  const allFilePaths = new Set(allChangedFiles.map(f => f.file));
+
   // Get diff and parse into hunks
   const spinner = ora("Analyzing changes...").start();
   let fileDiffs: FileDiff[];
@@ -37,14 +41,35 @@ export async function runCommit(): Promise<void> {
   let stats: string;
 
   try {
+    // Get diff for tracked files
     const rawDiff = await git.getFullDiff();
 
-    if (!rawDiff.trim()) {
-      spinner.fail("No diff found");
-      return;
+    // Parse tracked file diffs
+    fileDiffs = rawDiff.trim() ? parseDiff(rawDiff) : [];
+
+    // Add untracked files that weren't in diff
+    const parsedFiles = new Set(fileDiffs.map(f => f.file));
+    for (const fileInfo of allChangedFiles) {
+      if (!parsedFiles.has(fileInfo.file)) {
+        // This is an untracked file, add it as a simple entry
+        fileDiffs.push({
+          file: fileInfo.file,
+          isNew: fileInfo.status === "new",
+          isDeleted: fileInfo.status === "deleted",
+          isBinary: fileInfo.isBinary,
+          hunks: [{
+            file: fileInfo.file,
+            index: 0,
+            header: fileInfo.status === "new" ? "[NEW]" : "[FILE]",
+            content: "",
+            summary: fileInfo.status === "new" ? "New file" :
+                     fileInfo.status === "deleted" ? "Deleted file" : "Modified file"
+          }],
+          fullDiff: ""
+        });
+      }
     }
 
-    fileDiffs = parseDiff(rawDiff);
     formattedDiff = formatForAI(fileDiffs);
     stats = getStats(fileDiffs);
 
@@ -55,11 +80,16 @@ export async function runCommit(): Promise<void> {
     return;
   }
 
-  // Show files and hunks
+  if (fileDiffs.length === 0) {
+    console.log(chalk.yellow("⚠ No changes found\n"));
+    return;
+  }
+
+  // Show files
   console.log(chalk.gray("\nChanges:"));
   for (const file of fileDiffs) {
     const icon = file.isNew ? "+" : file.isDeleted ? "-" : "~";
-    const suffix = file.isBinary ? " (binary)" : ` (${file.hunks.length} hunk${file.hunks.length > 1 ? "s" : ""})`;
+    const suffix = file.isBinary ? " (binary)" : "";
     console.log(chalk.gray(`  ${icon} ${file.file}${suffix}`));
   }
   console.log();
@@ -97,7 +127,7 @@ export async function runCommit(): Promise<void> {
 
     for (const hunk of group.hunks) {
       // If this file hasn't been assigned yet, assign to this group
-      if (!fileToGroup.has(hunk.file)) {
+      if (!fileToGroup.has(hunk.file) && allFilePaths.has(hunk.file)) {
         fileToGroup.set(hunk.file, group.number);
         filesInGroup.push(hunk.file);
       }
@@ -112,6 +142,30 @@ export async function runCommit(): Promise<void> {
         commitBody: group.commitBody,
       });
     }
+  }
+
+  // Find files that weren't assigned to any group
+  const assignedFiles = new Set(fileToGroup.keys());
+  const missingFiles: string[] = [];
+  for (const filePath of allFilePaths) {
+    if (!assignedFiles.has(filePath)) {
+      missingFiles.push(filePath);
+    }
+  }
+
+  // Add missing files to a catch-all group
+  if (missingFiles.length > 0) {
+    const nextGroupNumber = fileBasedGroups.length > 0
+      ? Math.max(...fileBasedGroups.map(g => g.number)) + 1
+      : 1;
+
+    fileBasedGroups.push({
+      number: nextGroupNumber,
+      description: "Remaining changes",
+      files: missingFiles,
+      commitMessage: "chore: update remaining files",
+      commitBody: undefined,
+    });
   }
 
   if (fileBasedGroups.length === 0) {
