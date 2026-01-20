@@ -6,6 +6,7 @@ AI-powered git commit tool that analyzes your changes, groups them logically, an
 
 - **Smart Commit Grouping** - AI analyzes your changes and groups related files together by feature or purpose
 - **Conventional Commits** - Automatically generates commit messages in standard format (`feat`, `fix`, `refactor`, `chore`, etc.)
+- **Web UI** - Full web interface for selecting files, viewing diffs, and creating commits visually
 - **Stash Viewer** - Browse and manage git stashes in a beautiful web UI with diff viewer
 - **Safe Workflow** - Always shows a commit plan for your approval before making any changes
 
@@ -95,6 +96,29 @@ git-ai stash
 - Delete stashes you no longer need
 - Syntax highlighting for code changes
 
+### `git-ai ui`
+
+Open a full web UI for managing commits with real-time file changes.
+
+```bash
+git-ai ui
+```
+
+**Features:**
+- Real-time view of all changed files
+- Select files with checkboxes
+- View diff for each file
+- AI analyzes selected files and creates smart commit groups
+- Multiple commits from a single selection (chunks related changes)
+- Review commit plan before executing
+- Create commits with one click
+
+**How it works:**
+1. Select the files you want to commit
+2. Click "Analyze with AI" - AI groups related changes
+3. Review the proposed commit plan (may include multiple commits)
+4. Click "Create Commits" to execute
+
 ### `git-ai setup`
 
 Configure or update your OpenAI API key.
@@ -168,6 +192,7 @@ src/
 ├── openai.ts         # OpenAI API integration
 ├── commit.ts         # Commit workflow logic
 ├── stash.ts          # Stash viewer web UI
+├── ui.ts             # Commit manager web UI
 ├── config.ts         # Configuration management
 ├── setup.ts          # Setup wizard
 ├── reset.ts          # Reset configuration
