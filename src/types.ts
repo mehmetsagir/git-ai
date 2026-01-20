@@ -2,6 +2,7 @@ export interface FileInfo {
   file: string;
   status: "new" | "modified" | "deleted" | "renamed";
   isBinary: boolean;
+  staged: boolean;
 }
 
 // Hunk identifier for grouping
