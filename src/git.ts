@@ -30,8 +30,14 @@ export async function getChangedFiles(): Promise<FileInfo[]> {
     seen.add(f.path);
 
     let fileStatus: FileInfo["status"] = "modified";
+    // Check if file has staged changes (index is not empty, not "?" untracked)
+    const isStaged = f.index !== " " && f.index !== "?" && f.index !== "";
+    // Check if file has unstaged changes
+    const isUnstaged = f.working_dir !== " " && f.working_dir !== "";
 
-    if (f.index === "?" || f.index === "A" || f.working_dir === "?") {
+    if (f.index === "?" || f.working_dir === "?") {
+      fileStatus = "new";
+    } else if (f.index === "A" && f.working_dir === " ") {
       fileStatus = "new";
     } else if (f.index === "D" || f.working_dir === "D") {
       fileStatus = "deleted";
@@ -39,11 +45,28 @@ export async function getChangedFiles(): Promise<FileInfo[]> {
       fileStatus = "renamed";
     }
 
-    files.push({
-      file: f.path,
-      status: fileStatus,
-      isBinary: isBinaryFile(f.path),
-    });
+    // If file has both staged and unstaged changes, create two entries
+    if (isStaged && isUnstaged && f.index !== "?" && f.working_dir !== "?") {
+      files.push({
+        file: f.path,
+        status: fileStatus,
+        isBinary: isBinaryFile(f.path),
+        staged: true,
+      });
+      files.push({
+        file: f.path,
+        status: fileStatus,
+        isBinary: isBinaryFile(f.path),
+        staged: false,
+      });
+    } else {
+      files.push({
+        file: f.path,
+        status: fileStatus,
+        isBinary: isBinaryFile(f.path),
+        staged: isStaged,
+      });
+    }
   }
 
   return files;
@@ -65,6 +88,18 @@ function isBinaryFile(filePath: string): boolean {
 export async function stageFiles(files: string[]): Promise<void> {
   if (files.length === 0) return;
   await getGit().add(files);
+}
+
+export async function stageFile(file: string): Promise<void> {
+  await getGit().add([file]);
+}
+
+export async function unstageFile(file: string): Promise<void> {
+  try {
+    await getGit().reset(["HEAD", "--", file]);
+  } catch {
+    // Ignore if file not staged
+  }
 }
 
 export async function unstageAll(): Promise<void> {
@@ -104,6 +139,22 @@ export async function getFullDiff(): Promise<string> {
   }
 
   return diff;
+}
+
+export async function getStagedDiff(): Promise<string> {
+  try {
+    return await getGit().diff(["--cached"]);
+  } catch {
+    return "";
+  }
+}
+
+export async function getUnstagedDiff(): Promise<string> {
+  try {
+    return await getGit().diff();
+  } catch {
+    return "";
+  }
 }
 
 export interface StashEntry {
