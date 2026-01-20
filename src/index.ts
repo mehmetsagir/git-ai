@@ -6,6 +6,7 @@ import * as setup from "./setup";
 import * as commit from "./commit";
 import * as reset from "./reset";
 import * as stash from "./stash";
+import * as ui from "./ui";
 import { getErrorMessage } from "./utils/errors";
 
 const program = new Command();
@@ -59,6 +60,17 @@ program
   .action(async () => {
     try {
       await stash.runStashViewer();
+    } catch (error) {
+      handleError(error);
+    }
+  });
+
+program
+  .command("ui")
+  .description("Open web UI for managing commits")
+  .action(async () => {
+    try {
+      await ui.runUI();
     } catch (error) {
       handleError(error);
     }
