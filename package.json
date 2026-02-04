@@ -1,6 +1,6 @@
 {
   "name": "@mehmetsagir/git-ai",
-  "version": "0.0.26",
+  "version": "0.0.27",
   "description": "AI-powered git commit tool that analyzes diffs and creates conventional commit messages",
   "main": "dist/index.js",
   "bin": {
@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
-    "release": "npm publish --access public --registry https://registry.npmjs.org && npm publish --access public --registry https://npm.pkg.github.com"
+    "release": "npm publish --access public --registry https://registry.npmjs.org && git tag v$npm_package_version && git push origin v$npm_package_version"
   },
   "files": [
     "dist",
