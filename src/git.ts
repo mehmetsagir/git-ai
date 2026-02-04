@@ -1,6 +1,7 @@
 import simpleGit, { SimpleGit } from "simple-git";
 import * as path from "path";
-import { FileInfo } from "./types";
+import { DiffData, FileInfo, GitUserInfo, GitUserProfile } from "./types";
+import { getErrorMessage } from "./utils/errors";
 
 function getGit(): SimpleGit {
   return simpleGit(process.cwd());
@@ -110,8 +111,16 @@ export async function unstageAll(): Promise<void> {
   }
 }
 
-export async function createCommit(message: string): Promise<void> {
-  await getGit().commit(message);
+export async function createCommit(
+  message: string,
+  authorName?: string | null,
+  authorEmail?: string | null
+): Promise<void> {
+  const options: Record<string, string> = {};
+  if (authorName && authorEmail) {
+    options["--author"] = `${authorName} <${authorEmail}>`;
+  }
+  await getGit().commit(message, options);
 }
 
 export async function getStagedFiles(): Promise<string[]> {
@@ -238,4 +247,140 @@ export async function applyStash(index: number): Promise<void> {
 
 export async function dropStash(index: number): Promise<void> {
   await getGit().raw(["stash", "drop", `stash@{${index}}`]);
+}
+
+export async function getGitUserInfo(): Promise<GitUserInfo> {
+  try {
+    const git = getGit();
+    const [name, email] = await Promise.all([
+      git
+        .getConfig("user.name")
+        .then((config) => config.value || null)
+        .catch(() => null),
+      git
+        .getConfig("user.email")
+        .then((config) => config.value || null)
+        .catch(() => null),
+    ]);
+
+    return { name, email };
+  } catch (error) {
+    throw new Error(`Error getting git user info: ${getErrorMessage(error)}`);
+  }
+}
+
+export async function getAllGitUserProfiles(): Promise<GitUserProfile[]> {
+  try {
+    const git = getGit();
+    const profiles: GitUserProfile[] = [];
+
+    // Global config
+    try {
+      const globalName = await git
+        .getConfig("user.name", "global")
+        .then((c) => c.value)
+        .catch(() => null);
+      const globalEmail = await git
+        .getConfig("user.email", "global")
+        .then((c) => c.value)
+        .catch(() => null);
+      if (globalName && globalEmail) {
+        profiles.push({
+          id: `global-${globalEmail}`,
+          name: globalName,
+          email: globalEmail,
+          scope: "global",
+          label: `${globalName} <${globalEmail}> (Global)`,
+        });
+      }
+    } catch {
+      // Continue if global config doesn't exist
+    }
+
+    // Local config
+    try {
+      const localName = await git
+        .getConfig("user.name", "local")
+        .then((c) => c.value)
+        .catch(() => null);
+      const localEmail = await git
+        .getConfig("user.email", "local")
+        .then((c) => c.value)
+        .catch(() => null);
+      if (localName && localEmail) {
+        const isDuplicate = profiles.some(
+          (p) => p.email === localEmail && p.name === localName
+        );
+        if (!isDuplicate) {
+          profiles.push({
+            id: `local-${localEmail}`,
+            name: localName,
+            email: localEmail,
+            scope: "local",
+            label: `${localName} <${localEmail}> (Local)`,
+          });
+        }
+      }
+    } catch {
+      // Continue if local config doesn't exist
+    }
+
+    return profiles;
+  } catch (error) {
+    throw new Error(
+      `Error getting git user profiles: ${getErrorMessage(error)}`
+    );
+  }
+}
+
+export async function setGitUser(
+  name: string,
+  email: string,
+  scope: "global" | "local" = "local"
+): Promise<boolean> {
+  try {
+    const git = getGit();
+    await git.addConfig("user.name", name, scope === "global");
+    await git.addConfig("user.email", email, scope === "global");
+    return true;
+  } catch (error) {
+    throw new Error(`Error setting git user: ${getErrorMessage(error)}`);
+  }
+}
+
+export async function getAllDiff(): Promise<DiffData> {
+  try {
+    const staged = await getStagedDiff();
+    const unstaged = await getUnstagedDiff();
+
+    return {
+      staged,
+      unstaged,
+      all: `${staged}\n${unstaged}`.trim(),
+    };
+  } catch (error) {
+    throw new Error(`Error getting diff: ${getErrorMessage(error)}`);
+  }
+}
+
+export async function getAllChangedFiles(): Promise<string[]> {
+  try {
+    const status = await getGit().status();
+    return [
+      ...status.staged,
+      ...status.not_added,
+      ...status.modified,
+      ...(status.deleted || []),
+    ];
+  } catch (error) {
+    throw new Error(`Error getting changed files: ${getErrorMessage(error)}`);
+  }
+}
+
+export async function resetFilesToHead(files: string[]): Promise<void> {
+  try {
+    await getGit().raw(["checkout", "HEAD", "--", ...files]);
+  } catch (error) {
+    throw new Error(`Error resetting files to HEAD: ${getErrorMessage(error)}`);
+  }
 }
