@@ -8,7 +8,37 @@ import { parseDiff, formatForAI, getStats, FileDiff } from "./utils/hunk-parser"
 import { CommitResult } from "./types";
 import { getErrorMessage } from "./utils/errors";
 
-export async function runCommit(): Promise<void> {
+/**
+ * Resolve git user for commit author
+ */
+function resolveGitUser(userOption?: string): { name: string; email: string } | null {
+  const users = config.getGitUsers();
+  if (users.length === 0) return null;
+
+  if (userOption) {
+    const optionLower = userOption.toLowerCase().trim();
+    const found = users.find(
+      (u) =>
+        u.id === userOption ||
+        u.email.toLowerCase() === optionLower ||
+        u.shortcut === optionLower ||
+        u.name.toLowerCase() === optionLower
+    );
+    return found ? { name: found.name, email: found.email } : null;
+  }
+
+  // Use default user
+  const defaultUserId = config.getDefaultGitUser();
+  if (defaultUserId) {
+    const defaultUser = users.find((u) => u.id === defaultUserId);
+    if (defaultUser) return { name: defaultUser.name, email: defaultUser.email };
+  }
+
+  // Fallback to first user
+  return { name: users[0].name, email: users[0].email };
+}
+
+export async function runCommit(userOption?: string): Promise<void> {
   console.log(chalk.blue.bold("\n🤖 Git AI\n"));
 
   // Check config
@@ -16,6 +46,14 @@ export async function runCommit(): Promise<void> {
   if (!apiKey) {
     console.log(chalk.yellow("⚠ Setup required. Run: git-ai setup\n"));
     return;
+  }
+
+  // Resolve git user
+  const gitUser = resolveGitUser(userOption);
+  if (gitUser) {
+    console.log(chalk.gray(`👤 Author: ${gitUser.name} <${gitUser.email}>\n`));
+  } else if (userOption) {
+    console.log(chalk.yellow(`⚠ User "${userOption}" not found. Using git default.\n`));
   }
 
   // Check git repo
@@ -201,7 +239,7 @@ export async function runCommit(): Promise<void> {
 
   // Process commits
   console.log(chalk.blue("\n📦 Creating commits...\n"));
-  const results = await processCommits(fileBasedGroups);
+  const results = await processCommits(fileBasedGroups, gitUser);
 
   // Summary
   const successful = results.filter((r) => r.success).length;
@@ -229,7 +267,10 @@ interface FileBasedGroup {
   commitBody?: string;
 }
 
-async function processCommits(groups: FileBasedGroup[]): Promise<CommitResult[]> {
+async function processCommits(
+  groups: FileBasedGroup[],
+  author?: { name: string; email: string } | null
+): Promise<CommitResult[]> {
   const results: CommitResult[] = [];
   const committedFiles = new Set<string>();
 
@@ -277,7 +318,7 @@ async function processCommits(groups: FileBasedGroup[]): Promise<CommitResult[]>
         ? `${group.commitMessage}\n\n${group.commitBody}`
         : group.commitMessage;
 
-      await git.createCommit(message);
+      await git.createCommit(message, author?.name, author?.email);
 
       // Mark files as committed
       filesToCommit.forEach((f) => committedFiles.add(f));
