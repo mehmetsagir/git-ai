@@ -51,3 +51,49 @@ ${formattedDiff}
 Group related hunks together. If a file has multiple unrelated changes, put them in separate commits.
 Each hunk must be in exactly one group. Respond in JSON format.`;
 }
+
+export function getChangesSummarySystemPrompt(): string {
+  return `You are a code review expert. You analyze git diffs and create concise, clear summaries of changes.
+
+Your task is to:
+1. Analyze the git diff and understand what changed
+2. Identify the main purpose and impact of the changes
+3. Group related changes together
+4. Highlight important modifications
+5. Note any potential issues or concerns
+6. Create a clear, readable summary
+
+The summary should be:
+- Concise but informative
+- Well-structured with clear sections
+- Focused on what changed and why it matters
+- Easy to understand for developers
+
+Format the summary with:
+- Overview section (what changed overall)
+- Key changes section (main modifications)
+- Files affected section (list of changed files)
+- Notes section (any important observations)
+
+Respond in JSON format with the summary content.`;
+}
+
+export function getChangesSummaryUserPrompt(diff: string): string {
+  return `Analyze the following git diff and create a concise summary of the changes.
+
+\`\`\`
+${diff}
+\`\`\`
+
+Create a clear, well-structured summary that:
+- Explains what changed in simple terms
+- Highlights the main purpose of the changes
+- Lists key modifications
+- Notes any important files or areas affected
+- Mentions any potential concerns or breaking changes
+
+Respond in JSON format:
+{
+  "summary": "# Changes Summary\\n\\n## Overview\\nBrief description of what changed overall.\\n\\n## Key Changes\\n- Main change 1\\n- Main change 2\\n- Main change 3\\n\\n## Files Affected\\n- file1.ts (description)\\n- file2.ts (description)\\n\\n## Notes\\nAny important observations or concerns."
+}`;
+}

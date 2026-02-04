@@ -26,3 +26,27 @@ export async function analyzeAndGroup(
 
   return JSON.parse(content) as AnalysisResult;
 }
+
+export async function generateChangesSummary(
+  diff: string,
+  apiKey: string
+): Promise<{ summary: string | null }> {
+  const client = new OpenAI({ apiKey });
+
+  const response = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: prompts.getChangesSummarySystemPrompt() },
+      { role: "user", content: prompts.getChangesSummaryUserPrompt(diff) },
+    ],
+    temperature: 0.3,
+    response_format: { type: "json_object" },
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    return { summary: null };
+  }
+
+  return JSON.parse(content) as { summary: string | null };
+}
