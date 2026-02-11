@@ -3,7 +3,7 @@ import chalk from "chalk";
 import ora from "ora";
 import * as config from "./config";
 import * as git from "./git";
-import * as openai from "./openai";
+import { createAIProvider } from "./providers";
 import { parseDiff, formatForAI, getStats, FileDiff } from "./utils/hunk-parser";
 import { CommitResult } from "./types";
 import { getErrorMessage } from "./utils/errors";
@@ -42,11 +42,18 @@ export async function runCommit(userOption?: string): Promise<void> {
   console.log(chalk.blue.bold("\n🤖 Git AI\n"));
 
   // Check config
-  const apiKey = config.getOpenAIKey();
+  const provider = config.getProvider();
+  const apiKey = config.getAPIKey(provider);
   if (!apiKey) {
     console.log(chalk.yellow("⚠ Setup required. Run: git-ai setup\n"));
     return;
   }
+
+  // Create AI provider
+  const ai = createAIProvider(provider, apiKey);
+  const providerName = provider === "openai" ? "OpenAI" :
+                       provider === "gemini" ? "Gemini" : "z.ai";
+  console.log(chalk.gray(`🤖 Using ${providerName}\n`));
 
   // Resolve git user
   const gitUser = resolveGitUser(userOption);
@@ -133,10 +140,10 @@ export async function runCommit(userOption?: string): Promise<void> {
 
   // Analyze with AI
   const aiSpinner = ora("Grouping with AI...").start();
-  let result: Awaited<ReturnType<typeof openai.analyzeAndGroup>>;
+  let result: Awaited<ReturnType<typeof ai.analyzeAndGroup>>;
 
   try {
-    result = await openai.analyzeAndGroup(formattedDiff, stats, apiKey);
+    result = await ai.analyzeAndGroup(formattedDiff, stats);
     aiSpinner.succeed(`Created ${result.groups?.length || 0} commit group(s)`);
   } catch (error) {
     aiSpinner.fail(`AI error: ${getErrorMessage(error)}`);
