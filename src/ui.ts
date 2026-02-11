@@ -132,6 +132,7 @@ function getHtml(): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 16px;
     }
     .app-title {
       font-size: 14px;
@@ -144,6 +145,76 @@ function getHtml(): string {
     .app-title span {
       color: #4ec9b0;
       font-family: 'SF Mono', Monaco, monospace;
+    }
+    .git-user-info {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .git-user-info:hover {
+      background: #2d2d2d;
+    }
+    .git-user-icon {
+      width: 18px;
+      height: 18px;
+      color: #8b949e;
+      flex-shrink: 0;
+    }
+    .git-user-tooltip {
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: #2d2d2d;
+      border: 1px solid #3c3c3c;
+      border-radius: 6px;
+      white-space: nowrap;
+      font-size: 12px;
+      color: #e1e1e1;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s, visibility 0.2s;
+      z-index: 1000;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+    .git-user-info:hover .git-user-tooltip {
+      opacity: 1;
+      visibility: visible;
+    }
+    .git-user-tooltip::before {
+      content: '';
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-bottom-color: #3c3c3c;
+    }
+    .git-user-tooltip::after {
+      content: '';
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-bottom-color: #2d2d2d;
+    }
+    .git-user-tooltip-name {
+      font-weight: 600;
+      color: #fff;
+    }
+    .git-user-tooltip-email {
+      color: #8b949e;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 11px;
     }
     .header-actions {
       display: flex;
@@ -835,12 +906,20 @@ function getHtml(): string {
 </head>
 <body>
   <header class="app-header">
-    <div class="app-title">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="4"/>
-        <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
-      </svg>
-      <span>git-ai</span> Commit Manager
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <div class="app-title">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+        </svg>
+        <span>git-ai</span> Commit Manager
+      </div>
+      <div class="git-user-info" id="gitUserInfo" title="Loading...">
+        <svg class="git-user-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+      </div>
     </div>
     <div class="header-actions">
       <button class="btn btn-success" onclick="showCommitPanel()" id="commitPlanBtn" style="display: none;">
@@ -1007,11 +1086,48 @@ function getHtml(): string {
         }
       });
 
+      // Load git user info
+      loadGitUser();
+
       // Initial load
       refreshFiles();
 
       // Connect to SSE for real-time updates
       connectSSE();
+    }
+
+    async function loadGitUser() {
+      try {
+        const res = await fetch('/api/user');
+        const user = await res.json();
+        const gitUserInfo = document.getElementById('gitUserInfo');
+
+        if (user && user.name && user.email) {
+          gitUserInfo.innerHTML = \`
+            <svg class="git-user-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            <div class="git-user-tooltip">
+              <div class="git-user-tooltip-name">\${escapeHtml(user.name)}</div>
+              <div class="git-user-tooltip-email">\${escapeHtml(user.email)}</div>
+            </div>
+          \`;
+        } else {
+          gitUserInfo.innerHTML = \`
+            <svg class="git-user-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 1; color: #8b949e;">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              <path d="M12 9v4M12 17h.01"/>
+            </svg>
+            <div class="git-user-tooltip">
+              <div class="git-user-tooltip-name" style="color: #8b949e;">No Git User</div>
+              <div class="git-user-tooltip-email" style="color: #8b949e;">Configure with: git config user.name/email</div>
+            </div>
+          \`;
+        }
+      } catch (err) {
+        console.error('Failed to load git user:', err);
+      }
     }
 
     function connectSSE() {
@@ -1876,6 +1992,19 @@ export async function runUI(): Promise<void> {
       req.on("close", () => {
         sseClients.delete(res);
       });
+      return;
+    }
+
+    // API: Get current git user
+    if (url.startsWith("/api/user") && method === "GET") {
+      try {
+        const userInfo = await git.getGitUserInfo();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(userInfo));
+      } catch (err) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ name: null, email: null }));
+      }
       return;
     }
 
