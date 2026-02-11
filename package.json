@@ -20,12 +20,17 @@
     "commit",
     "ai",
     "openai",
+    "gemini",
+    "google-ai",
+    "zai",
+    "z.ai",
     "conventional-commits",
     "cli"
   ],
   "author": "Mehmet Sağır <mehmetsagirdev@gmail.com>",
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
     "inquirer": "^8.2.6",
