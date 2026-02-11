@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { Config, GitUserProfile } from "./types";
+import { Config, GitUserProfile, AIProvider } from "./types";
 
 const CONFIG_DIR = path.join(os.homedir(), ".git-ai");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
@@ -43,6 +43,52 @@ export function setOpenAIKey(key: string): boolean {
   const config = readConfig() || {};
   config.openaiKey = key;
   return writeConfig(config);
+}
+
+export function getProvider(): AIProvider {
+  const config = readConfig();
+  return config?.provider || "openai"; // Default to openai for backward compat
+}
+
+export function setProvider(provider: AIProvider): boolean {
+  const config = readConfig() || {};
+  config.provider = provider;
+  return writeConfig(config);
+}
+
+export function getGeminiKey(): string | null {
+  const config = readConfig();
+  return config?.geminiKey || null;
+}
+
+export function setGeminiKey(key: string): boolean {
+  const config = readConfig() || {};
+  config.geminiKey = key;
+  return writeConfig(config);
+}
+
+export function getZaiKey(): string | null {
+  const config = readConfig();
+  return config?.zaiKey || null;
+}
+
+export function setZaiKey(key: string): boolean {
+  const config = readConfig() || {};
+  config.zaiKey = key;
+  return writeConfig(config);
+}
+
+export function getAPIKey(provider: AIProvider): string | null {
+  switch (provider) {
+    case "openai":
+      return getOpenAIKey();
+    case "gemini":
+      return getGeminiKey();
+    case "zai":
+      return getZaiKey();
+    default:
+      return null;
+  }
 }
 
 export function getGitUsers(): GitUserProfile[] {
