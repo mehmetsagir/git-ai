@@ -7,8 +7,13 @@ export interface GitUserProfile {
   shortcut?: string | null;
 }
 
+export type AIProvider = "openai" | "gemini" | "zai";
+
 export interface Config {
-  openaiKey?: string;
+  provider?: AIProvider;      // Selected provider (defaults to "openai" for backward compat)
+  openaiKey?: string;         // OpenAI API key
+  geminiKey?: string;         // Gemini API key
+  zaiKey?: string;            // z.ai API key
   gitUsers?: GitUserProfile[];
   defaultGitUser?: string | null;
   editor?: string | null;
