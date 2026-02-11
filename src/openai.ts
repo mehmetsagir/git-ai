@@ -1,52 +1,30 @@
-import OpenAI from "openai";
-import * as prompts from "./prompts";
-import { AnalysisResult } from "./types";
+/**
+ * @deprecated This module is deprecated. Use src/providers/openai.ts instead.
+ * Kept for backward compatibility only.
+ */
 
+import { AnalysisResult } from "./types";
+import { createOpenAIProvider } from "./providers/openai";
+
+/**
+ * @deprecated Use createOpenAIProvider from ./providers/openai instead
+ */
 export async function analyzeAndGroup(
   formattedDiff: string,
   stats: string,
   apiKey: string
 ): Promise<AnalysisResult> {
-  const client = new OpenAI({ apiKey });
-
-  const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: prompts.getSystemPrompt() },
-      { role: "user", content: prompts.getUserPrompt(formattedDiff, stats) },
-    ],
-    temperature: 0.3,
-    response_format: { type: "json_object" },
-  });
-
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error("No response from OpenAI");
-  }
-
-  return JSON.parse(content) as AnalysisResult;
+  const provider = createOpenAIProvider(apiKey);
+  return provider.analyzeAndGroup(formattedDiff, stats);
 }
 
+/**
+ * @deprecated Use createOpenAIProvider from ./providers/openai instead
+ */
 export async function generateChangesSummary(
   diff: string,
   apiKey: string
 ): Promise<{ summary: string | null }> {
-  const client = new OpenAI({ apiKey });
-
-  const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: prompts.getChangesSummarySystemPrompt() },
-      { role: "user", content: prompts.getChangesSummaryUserPrompt(diff) },
-    ],
-    temperature: 0.3,
-    response_format: { type: "json_object" },
-  });
-
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    return { summary: null };
-  }
-
-  return JSON.parse(content) as { summary: string | null };
+  const provider = createOpenAIProvider(apiKey);
+  return provider.generateChangesSummary(diff);
 }
