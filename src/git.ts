@@ -88,7 +88,44 @@ function isBinaryFile(filePath: string): boolean {
 
 export async function stageFiles(files: string[]): Promise<void> {
   if (files.length === 0) return;
-  await getGit().add(files);
+
+  // Filter out ignored files
+  const validFiles: string[] = [];
+  const git = getGit();
+
+  for (const file of files) {
+    try {
+      // Check if file is ignored
+      const result = await git.raw(["check-ignore", file]);
+      // If check-ignore returns output, the file is ignored - skip it
+      if (!result || result.trim() === "") {
+        validFiles.push(file);
+      }
+    } catch (error: any) {
+      // check-ignore exits with 1 if file is not ignored
+      // This is expected behavior, so the file is valid
+      if (error.exitCode === 1) {
+        validFiles.push(file);
+      }
+      // For other errors, skip the file
+    }
+  }
+
+  if (validFiles.length === 0) return;
+
+  try {
+    await git.add(validFiles);
+  } catch (error: any) {
+    // If staging still fails, try to add files one by one
+    for (const file of validFiles) {
+      try {
+        await git.add([file]);
+      } catch {
+        // Skip files that can't be staged
+        console.warn(`Warning: Could not stage file: ${file}`);
+      }
+    }
+  }
 }
 
 export async function stageFile(file: string): Promise<void> {
