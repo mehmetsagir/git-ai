@@ -4,11 +4,13 @@ AI-powered git commit tool that analyzes your changes, groups them logically, an
 
 ## Features
 
+- **Multi-Provider Support** - Choose between OpenAI (GPT-4o-mini), Google Gemini (Gemini 3 Flash Preview), or z.ai (GLM-4.7)
 - **Smart Commit Grouping** - AI analyzes your changes and groups related files together by feature or purpose
 - **Conventional Commits** - Automatically generates commit messages in standard format (`feat`, `fix`, `refactor`, `chore`, etc.)
 - **Web UI** - Full web interface for selecting files, viewing diffs, and creating commits visually
 - **Stash Viewer** - Browse and manage git stashes in a beautiful web UI with diff viewer
 - **Safe Workflow** - Always shows a commit plan for your approval before making any changes
+- **Gitignore Support** - Automatically skips files in .gitignore
 
 ## Installation
 
@@ -18,13 +20,25 @@ npm install -g @mehmetsagir/git-ai
 
 ## Setup
 
-Before using git-ai, you need to configure your OpenAI API key:
+Before using git-ai, you need to configure your AI provider and API key:
 
 ```bash
 git-ai setup
 ```
 
-You'll be prompted to enter your OpenAI API key. Get one from [OpenAI Platform](https://platform.openai.com/api-keys).
+You'll be prompted to:
+1. **Select an AI provider:**
+   - **OpenAI (GPT-4o-mini)** - Most popular, reliable performance
+   - **Google Gemini (Gemini 3 Flash Preview)** - Fast, cutting-edge Google AI
+   - **z.ai (GLM-4.7)** - Cost-effective alternative with GLM models
+
+2. **Enter your API key** for the selected provider
+
+### Getting API Keys
+
+- **OpenAI**: Get your key from [OpenAI Platform](https://platform.openai.com/api-keys)
+- **Gemini**: Get your key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+- **z.ai**: Get your key from [z.ai](https://z.ai/)
 
 ## Commands
 
@@ -121,11 +135,16 @@ git-ai ui
 
 ### `git-ai setup`
 
-Configure or update your OpenAI API key.
+Configure or update your AI provider and API key.
 
 ```bash
 git-ai setup
 ```
+
+You can run this command anytime to:
+- Switch between AI providers
+- Update your API key
+- Reconfigure your settings
 
 ### `git-ai reset`
 
@@ -135,21 +154,57 @@ Reset all configuration (removes stored API key).
 git-ai reset
 ```
 
+## AI Providers
+
+git-ai supports multiple AI providers, giving you flexibility in choosing the best option for your needs:
+
+### OpenAI (GPT-4o-mini)
+- **Best for**: Reliable, consistent performance
+- **Model**: gpt-4o-mini
+- **Speed**: Fast
+- **Cost**: Moderate
+- **Get API Key**: [OpenAI Platform](https://platform.openai.com/api-keys)
+
+### Google Gemini (Gemini 3 Flash Preview)
+- **Best for**: Cutting-edge performance, fast responses
+- **Model**: gemini-3-flash-preview
+- **Speed**: Very Fast
+- **Cost**: Competitive
+- **Get API Key**: [Google AI Studio](https://makersuite.google.com/app/apikey)
+
+### z.ai (GLM-4.7)
+- **Best for**: Cost-effective alternative
+- **Model**: GLM-4.7
+- **Speed**: Fast
+- **Cost**: Low
+- **Get API Key**: [z.ai](https://z.ai/)
+- **Note**: Uses OpenAI-compatible API format
+
+All providers produce identical commit structures and follow the same quality standards.
+
 ## Configuration
 
 Configuration is stored in `~/.git-ai/config.json`:
 
 ```json
 {
-  "openaiKey": "sk-..."
+  "provider": "openai",
+  "openaiKey": "sk-...",
+  "geminiKey": "AI...",
+  "zaiKey": "..."
 }
 ```
+
+The tool will use the provider specified in the config and its corresponding API key.
 
 ## Requirements
 
 - Node.js >= 14.0.0
 - Git repository
-- OpenAI API key
+- API key from one of the supported providers:
+  - OpenAI (https://platform.openai.com/api-keys)
+  - Google Gemini (https://makersuite.google.com/app/apikey)
+  - z.ai (https://z.ai/)
 
 ## Contributing
 
@@ -189,15 +244,21 @@ Contributions are welcome! Here's how you can help:
 src/
 ├── index.ts          # CLI entry point and command routing
 ├── git.ts            # Git operations (using simple-git)
-├── openai.ts         # OpenAI API integration
+├── openai.ts         # [Deprecated] Legacy OpenAI module
 ├── commit.ts         # Commit workflow logic
 ├── stash.ts          # Stash viewer web UI
 ├── ui.ts             # Commit manager web UI
 ├── config.ts         # Configuration management
-├── setup.ts          # Setup wizard
+├── setup.ts          # Setup wizard with provider selection
 ├── reset.ts          # Reset configuration
 ├── prompts.ts        # AI prompts for commit analysis
 ├── types.ts          # TypeScript type definitions
+├── providers/        # AI provider abstraction
+│   ├── types.ts      # IAIProvider interface
+│   ├── index.ts      # Provider factory
+│   ├── openai.ts     # OpenAI provider (GPT-4o-mini)
+│   ├── gemini.ts     # Google Gemini provider (Gemini 3 Flash)
+│   └── zai.ts        # z.ai provider (GLM-4.7)
 └── utils/
     ├── errors.ts     # Error handling utilities
     └── hunk-parser.ts # Diff parsing utilities
