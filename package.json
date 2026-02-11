@@ -1,6 +1,6 @@
 {
   "name": "@mehmetsagir/git-ai",
-  "version": "0.0.27",
+  "version": "0.0.29",
   "description": "AI-powered git commit tool that analyzes diffs and creates conventional commit messages",
   "main": "dist/index.js",
   "bin": {
@@ -13,7 +13,8 @@
   },
   "files": [
     "dist",
-    "bin"
+    "bin",
+    "README.md"
   ],
   "keywords": [
     "git",
