@@ -3,8 +3,8 @@ import * as fs from "fs";
 import * as path from "path";
 import chalk from "chalk";
 import * as git from "./git";
-import * as openai from "./openai";
-import { getOpenAIKey } from "./config";
+import { createAIProvider } from "./providers";
+import { getProvider, getAPIKey } from "./config";
 import { parseDiff, formatForAI, getStats, FileDiff } from "./utils/hunk-parser";
 
 // SSE clients for real-time updates
@@ -1958,9 +1958,10 @@ export async function runUI(): Promise<void> {
     return;
   }
 
-  const apiKey = await getOpenAIKey();
+  const provider = getProvider();
+  const apiKey = getAPIKey(provider);
   if (!apiKey) {
-    console.log(chalk.red("❌ OpenAI API key not configured. Run: git-ai setup\n"));
+    console.log(chalk.red("❌ API key not configured. Run: git-ai setup\n"));
     return;
   }
 
@@ -2145,7 +2146,8 @@ export async function runUI(): Promise<void> {
           const stats = getStats(fileDiffs);
 
           // Analyze with AI
-          const result = await openai.analyzeAndGroup(formattedDiff, stats, apiKey);
+          const aiProvider = createAIProvider(provider, apiKey);
+          const result = await aiProvider.analyzeAndGroup(formattedDiff, stats);
 
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify(result));
