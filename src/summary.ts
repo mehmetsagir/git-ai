@@ -5,7 +5,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as config from "./config";
 import * as git from "./git";
-import * as openai from "./openai";
+import { createAIProvider } from "./providers";
 import { getErrorMessage } from "./utils/errors";
 
 /**
@@ -22,10 +22,11 @@ export async function runSummary(outputFile?: string): Promise<void> {
     return;
   }
 
-  const openaiKey = config.getOpenAIKey();
-  if (!openaiKey) {
+  const provider = config.getProvider();
+  const apiKey = config.getAPIKey(provider);
+  if (!apiKey) {
     console.log(
-      chalk.yellow("⚠ OpenAI API key not found. Please run setup first.\n")
+      chalk.yellow("⚠ API key not found. Please run setup first.\n")
     );
     console.log(chalk.blue("Run: git-ai setup\n"));
     return;
@@ -101,13 +102,11 @@ export async function runSummary(outputFile?: string): Promise<void> {
   const aiSpinner = ora("🤖 Generating summary with AI...").start();
   let summaryResult;
   try {
-    summaryResult = await openai.generateChangesSummary(
-      diffData.all,
-      openaiKey
-    );
+    const aiProvider = createAIProvider(provider, apiKey);
+    summaryResult = await aiProvider.generateChangesSummary(diffData.all);
     aiSpinner.succeed("Summary generated");
   } catch (error) {
-    aiSpinner.fail(`OpenAI error: ${getErrorMessage(error)}`);
+    aiSpinner.fail(`AI error: ${getErrorMessage(error)}`);
     return;
   }
 
