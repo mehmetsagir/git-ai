@@ -1,5 +1,8 @@
 import simpleGit, { SimpleGit } from "simple-git";
 import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
+import { execFile } from "child_process";
 import { DiffData, FileInfo, GitUserInfo, GitUserProfile } from "./types";
 import { getErrorMessage } from "./utils/errors";
 
@@ -84,6 +87,21 @@ function isBinaryFile(filePath: string): boolean {
   ];
   const ext = path.extname(filePath).toLowerCase();
   return binaryExtensions.includes(ext);
+}
+
+export async function applyPatchToIndex(patch: string): Promise<void> {
+  const tmpFile = path.join(os.tmpdir(), `git-ai-patch-${Date.now()}.patch`);
+  try {
+    fs.writeFileSync(tmpFile, patch);
+    await new Promise<void>((resolve, reject) => {
+      execFile("git", ["apply", "--cached", "--unidiff-zero", tmpFile], { cwd: process.cwd() }, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+  }
 }
 
 export async function stageFiles(files: string[]): Promise<void> {
