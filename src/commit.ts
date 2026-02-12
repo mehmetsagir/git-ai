@@ -4,8 +4,8 @@ import ora from "ora";
 import * as config from "./config";
 import * as git from "./git";
 import { createAIProvider } from "./providers";
-import { parseDiff, formatForAI, getStats, FileDiff } from "./utils/hunk-parser";
-import { CommitResult } from "./types";
+import { parseDiff, formatForAI, getStats, buildPatch, FileDiff } from "./utils/hunk-parser";
+import { CommitGroup, CommitResult } from "./types";
 import { getErrorMessage } from "./utils/errors";
 
 /**
@@ -155,41 +155,28 @@ export async function runCommit(userOption?: string): Promise<void> {
     return;
   }
 
-  // Convert hunk-based groups to file-based groups
-  // Each file goes to the FIRST group that references any of its hunks
-  const fileToGroup = new Map<string, number>();
-  const fileBasedGroups: Array<{
-    number: number;
-    description: string;
-    files: string[];
-    commitMessage: string;
-    commitBody?: string;
-  }> = [];
+  // Filter groups to only include hunks that reference valid files
+  const commitGroups: CommitGroup[] = [];
+  const assignedHunks = new Set<string>(); // "file:hunkIndex"
 
   for (const group of result.groups) {
-    const filesInGroup: string[] = [];
+    const validHunks = group.hunks.filter(h => {
+      const key = `${h.file}:${h.hunkIndex}`;
+      if (!allFilePaths.has(h.file) || assignedHunks.has(key)) return false;
+      assignedHunks.add(key);
+      return true;
+    });
 
-    for (const hunk of group.hunks) {
-      // If this file hasn't been assigned yet, assign to this group
-      if (!fileToGroup.has(hunk.file) && allFilePaths.has(hunk.file)) {
-        fileToGroup.set(hunk.file, group.number);
-        filesInGroup.push(hunk.file);
-      }
-    }
-
-    if (filesInGroup.length > 0) {
-      fileBasedGroups.push({
-        number: group.number,
-        description: group.description,
-        files: filesInGroup,
-        commitMessage: group.commitMessage,
-        commitBody: group.commitBody,
+    if (validHunks.length > 0) {
+      commitGroups.push({
+        ...group,
+        hunks: validHunks,
       });
     }
   }
 
   // Find files that weren't assigned to any group
-  const assignedFiles = new Set(fileToGroup.keys());
+  const assignedFiles = new Set(commitGroups.flatMap(g => g.hunks.map(h => h.file)));
   const missingFiles: string[] = [];
   for (const filePath of allFilePaths) {
     if (!assignedFiles.has(filePath)) {
@@ -199,20 +186,19 @@ export async function runCommit(userOption?: string): Promise<void> {
 
   // Add missing files to a catch-all group
   if (missingFiles.length > 0) {
-    const nextGroupNumber = fileBasedGroups.length > 0
-      ? Math.max(...fileBasedGroups.map(g => g.number)) + 1
+    const nextGroupNumber = commitGroups.length > 0
+      ? Math.max(...commitGroups.map(g => g.number)) + 1
       : 1;
 
-    fileBasedGroups.push({
+    commitGroups.push({
       number: nextGroupNumber,
       description: "Remaining changes",
-      files: missingFiles,
+      hunks: missingFiles.map(f => ({ file: f, hunkIndex: 0 })),
       commitMessage: "chore: update remaining files",
-      commitBody: undefined,
     });
   }
 
-  if (fileBasedGroups.length === 0) {
+  if (commitGroups.length === 0) {
     console.log(chalk.yellow("⚠ No valid commit groups\n"));
     return;
   }
@@ -220,10 +206,15 @@ export async function runCommit(userOption?: string): Promise<void> {
   // Show commit plan
   console.log(chalk.blue("\n📋 Commit Plan:\n"));
 
-  for (const group of fileBasedGroups) {
+  for (const group of commitGroups) {
     console.log(chalk.cyan(`${group.number}. ${group.description}`));
-    for (const file of group.files) {
-      console.log(chalk.gray(`   ${file}`));
+    const groupFiles = [...new Set(group.hunks.map(h => h.file))];
+    for (const file of groupFiles) {
+      const fileHunks = group.hunks.filter(h => h.file === file);
+      const fileDiff = fileDiffs.find(f => f.file === file);
+      const totalHunks = fileDiff?.hunks.length || 0;
+      const hunkInfo = totalHunks > 1 ? ` (hunks: ${fileHunks.map(h => h.hunkIndex).join(", ")})` : "";
+      console.log(chalk.gray(`   ${file}${hunkInfo}`));
     }
     console.log(chalk.yellow(`   → ${group.commitMessage}`));
     console.log();
@@ -246,7 +237,7 @@ export async function runCommit(userOption?: string): Promise<void> {
 
   // Process commits
   console.log(chalk.blue("\n📦 Creating commits...\n"));
-  const results = await processCommits(fileBasedGroups, gitUser);
+  const results = await processCommits(commitGroups, fileDiffs, gitUser);
 
   // Summary
   const successful = results.filter((r) => r.success).length;
@@ -266,56 +257,62 @@ export async function runCommit(userOption?: string): Promise<void> {
   console.log(chalk.yellow("\n⚠ Don't forget to push: git push\n"));
 }
 
-interface FileBasedGroup {
-  number: number;
-  description: string;
-  files: string[];
-  commitMessage: string;
-  commitBody?: string;
-}
-
 async function processCommits(
-  groups: FileBasedGroup[],
+  groups: CommitGroup[],
+  fileDiffs: FileDiff[],
   author?: { name: string; email: string } | null
 ): Promise<CommitResult[]> {
   const results: CommitResult[] = [];
-  const committedFiles = new Set<string>();
-
-  // First, unstage everything
-  await git.unstageAll();
+  const fileDiffMap = new Map(fileDiffs.map(f => [f.file, f]));
 
   for (const group of groups) {
-    // Filter to only files that haven't been committed yet
-    const filesToCommit = group.files.filter((f) => !committedFiles.has(f));
-
-    if (filesToCommit.length === 0) {
-      console.log(chalk.yellow(`⚠ Group ${group.number}: No files to commit, skipping`));
-      results.push({
-        group: group.number,
-        message: group.commitMessage,
-        hunks: [],
-        success: false,
-        error: "No valid files",
-      });
-      continue;
-    }
-
     const commitSpinner = ora(`Group ${group.number}: ${group.commitMessage}`).start();
 
     try {
-      // Stage files for this group
-      await git.stageFiles(filesToCommit);
+      // Clean staging area
+      await git.unstageAll();
 
-      // Verify files are staged
+      // Group hunks by file
+      const hunksByFile = new Map<string, number[]>();
+      for (const hunk of group.hunks) {
+        const existing = hunksByFile.get(hunk.file) || [];
+        existing.push(hunk.hunkIndex);
+        hunksByFile.set(hunk.file, existing);
+      }
+
+      // Stage each file's hunks
+      for (const [file, hunkIndices] of hunksByFile) {
+        const fileDiff = fileDiffMap.get(file);
+
+        // New, deleted, or binary files: stage the whole file
+        if (!fileDiff || fileDiff.isNew || fileDiff.isDeleted || fileDiff.isBinary) {
+          await git.stageFiles([file]);
+          continue;
+        }
+
+        // If all hunks are selected, stage the whole file
+        if (hunkIndices.length >= fileDiff.hunks.length) {
+          await git.stageFiles([file]);
+          continue;
+        }
+
+        // Partial hunk selection: build patch and apply to index
+        const patch = buildPatch(fileDiff, hunkIndices);
+        if (patch) {
+          await git.applyPatchToIndex(patch);
+        }
+      }
+
+      // Verify something is staged
       const staged = await git.getStagedFiles();
       if (staged.length === 0) {
-        commitSpinner.fail(`Group ${group.number}: No files staged`);
+        commitSpinner.fail(`Group ${group.number}: No changes staged`);
         results.push({
           group: group.number,
           message: group.commitMessage,
-          hunks: filesToCommit.map((f) => ({ file: f, hunkIndex: 0 })),
+          hunks: group.hunks,
           success: false,
-          error: "Failed to stage files",
+          error: "No changes staged",
         });
         continue;
       }
@@ -327,16 +324,14 @@ async function processCommits(
 
       await git.createCommit(message, author?.name, author?.email);
 
-      // Mark files as committed
-      filesToCommit.forEach((f) => committedFiles.add(f));
-
+      const groupFiles = [...hunksByFile.keys()];
       commitSpinner.succeed(`Group ${group.number}: ${group.commitMessage}`);
-      console.log(chalk.gray(`   Files: ${filesToCommit.join(", ")}`));
+      console.log(chalk.gray(`   Files: ${groupFiles.join(", ")}`));
 
       results.push({
         group: group.number,
         message: group.commitMessage,
-        hunks: filesToCommit.map((f) => ({ file: f, hunkIndex: 0 })),
+        hunks: group.hunks,
         success: true,
       });
     } catch (error) {
