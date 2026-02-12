@@ -5,7 +5,7 @@ import chalk from "chalk";
 import * as git from "./git";
 import { createAIProvider } from "./providers";
 import { getProvider, getAPIKey } from "./config";
-import { parseDiff, formatForAI, getStats, FileDiff } from "./utils/hunk-parser";
+import { parseDiff, formatForAI, getStats, buildPatch, FileDiff } from "./utils/hunk-parser";
 
 // SSE clients for real-time updates
 const sseClients: Set<http.ServerResponse> = new Set();
@@ -2168,13 +2168,50 @@ export async function runUI(): Promise<void> {
           const { groups } = JSON.parse(body);
           let committed = 0;
 
-          for (const group of groups) {
-            // Get files from either 'files' array or extract from 'hunks'
-            const files = group.files || [...new Set((group.hunks || []).map((h: { file: string }) => h.file))];
+          // Get current diff and parse to identify file types
+          const rawDiff = await git.getFullDiff();
+          const fileDiffs = rawDiff.trim() ? parseDiff(rawDiff) : [];
+          const fileDiffMap = new Map(fileDiffs.map(f => [f.file, f]));
 
-            // Stage files for this group
+          for (const group of groups) {
+            const hunks: Array<{ file: string; hunkIndex: number }> = group.hunks || [];
+            if (hunks.length === 0 && group.files) {
+              // Backward compat: convert files to hunks
+              for (const file of group.files) {
+                hunks.push({ file, hunkIndex: 0 });
+              }
+            }
+
+            // Clean staging area
             await git.unstageAll();
-            await git.stageFiles(files);
+
+            // Group hunks by file
+            const hunksByFile = new Map<string, number[]>();
+            for (const hunk of hunks) {
+              const existing = hunksByFile.get(hunk.file) || [];
+              existing.push(hunk.hunkIndex);
+              hunksByFile.set(hunk.file, existing);
+            }
+
+            // Stage each file's hunks
+            for (const [file, hunkIndices] of hunksByFile) {
+              const fileDiff = fileDiffMap.get(file);
+
+              if (!fileDiff || fileDiff.isNew || fileDiff.isDeleted || fileDiff.isBinary) {
+                await git.stageFiles([file]);
+                continue;
+              }
+
+              if (hunkIndices.length >= fileDiff.hunks.length) {
+                await git.stageFiles([file]);
+                continue;
+              }
+
+              const patch = buildPatch(fileDiff, hunkIndices);
+              if (patch) {
+                await git.applyPatchToIndex(patch);
+              }
+            }
 
             // Create commit
             const message = group.commitBody
