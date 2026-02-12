@@ -130,6 +130,21 @@ export function parseDiff(diffOutput: string): FileDiff[] {
   return files;
 }
 
+export function buildPatch(fileDiff: FileDiff, hunkIndices: number[]): string {
+  const selectedHunks = fileDiff.hunks.filter(h => hunkIndices.includes(h.index));
+  if (selectedHunks.length === 0) return "";
+
+  const header = [
+    `diff --git a/${fileDiff.file} b/${fileDiff.file}`,
+    `--- a/${fileDiff.file}`,
+    `+++ b/${fileDiff.file}`,
+  ].join("\n");
+
+  const hunksContent = selectedHunks.map(h => h.content).join("\n");
+
+  return header + "\n" + hunksContent + "\n";
+}
+
 export function formatForAI(files: FileDiff[]): string {
   let output = '';
 
