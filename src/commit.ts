@@ -339,7 +339,7 @@ async function processCommits(
       results.push({
         group: group.number,
         message: group.commitMessage,
-        hunks: filesToCommit.map((f) => ({ file: f, hunkIndex: 0 })),
+        hunks: group.hunks,
         success: false,
         error: getErrorMessage(error),
       });
